@@ -1590,9 +1590,7 @@ static inline uintptr_t js_get_stack_pointer(void)
 
 static inline BOOL js_check_stack_overflow(JSRuntime *rt, size_t alloca_size)
 {
-    uintptr_t sp;
-    sp = js_get_stack_pointer() - alloca_size;
-    return unlikely(sp < rt->stack_limit);
+    return unlikely(js_get_stack_pointer() < rt->stack_limit + alloca_size);
 }
 #endif
 
