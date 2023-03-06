@@ -1,0 +1,16 @@
+*.o
+*.a
+*.so
+.obj
+repl.c
+qjscalc.c
+out.c
+hello.c
+test_fib.c
+test_fib
+qjs
+qjsc
+qjscalc
+run-test262
+examples/hello
+examples/hello_module
