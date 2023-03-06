@@ -49,6 +49,7 @@ prefix=/usr/local
 #CONFIG_ASAN=y
 # include the code for BigInt/BigFloat/BigDecimal and math mode
 CONFIG_BIGNUM=y
+CONFIG_CLANG=y
 
 OBJDIR=.obj
 
@@ -105,6 +106,10 @@ DEFINES+=-DCONFIG_BIGNUM
 endif
 ifdef CONFIG_WIN32
 DEFINES+=-D__USE_MINGW_ANSI_STDIO # for standard snprintf behavior
+endif
+
+ifdef CONFIG_WASM
+DEFINES+=-DCONFIG_WASM
 endif
 
 CFLAGS+=$(DEFINES)
@@ -174,6 +179,14 @@ QJS_LIB_OBJS+=$(OBJDIR)/libbf.o
 QJS_OBJS+=$(OBJDIR)/qjscalc.o
 endif
 
+ifdef CONFIG_WASM
+QJS_WASM_ARCHIVE=libquickjs_wasm_staticlib.a
+
+libquickjs_wasm_staticlib.a:
+else
+QJS_WASM_ARCHIVE=
+endif
+
 HOST_LIBS=-lm -ldl -lpthread
 LIBS=-lm
 ifndef CONFIG_WIN32
@@ -184,13 +197,13 @@ LIBS+=$(EXTRA_LIBS)
 $(OBJDIR):
 	mkdir -p $(OBJDIR) $(OBJDIR)/examples $(OBJDIR)/tests
 
-qjs$(EXE): $(QJS_OBJS)
+qjs$(EXE): $(QJS_OBJS) $(QJS_WASM_ARCHIVE)
 	$(CC) $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS)
 
-qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS))
+qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS)) $(QJS_WASM_ARCHIVE)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
+qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 ifneq ($(CROSS_PREFIX),)
