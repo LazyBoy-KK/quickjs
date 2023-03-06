@@ -145,7 +145,6 @@ void JS_SetRustRuntimeOpaque(JSRuntime *rt, void *opaque)
     ts->rust_opaque = opaque;
 }
 
-extern void JS_DropRustRuntime(JSRuntime *rt);
 #endif
 
 static uint64_t os_pending_signals;

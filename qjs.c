@@ -534,6 +534,7 @@ int main(int argc, char **argv)
         JS_ComputeMemoryUsage(rt, &stats);
         JS_DumpMemoryUsage(stdout, &stats, rt);
     }
+    JS_DropRustRuntime(rt);
     js_std_free_handlers(rt);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
