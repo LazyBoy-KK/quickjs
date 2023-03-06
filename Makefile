@@ -203,7 +203,7 @@ qjs$(EXE): $(QJS_OBJS) $(QJS_WASM_ARCHIVE)
 qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS)) $(QJS_WASM_ARCHIVE)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE)
+qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
 ifneq ($(CROSS_PREFIX),)

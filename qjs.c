@@ -120,7 +120,7 @@ static JSContext *JS_NewCustomContext(JSRuntime *rt)
     /* system modules */
     js_init_module_std(ctx, "std");
     js_init_module_os(ctx, "os");
-    js_init_module_wasm(ctx, "wasm");
+    JS_AddIntrinsicWebAssembly(ctx);
     return ctx;
 }
 
