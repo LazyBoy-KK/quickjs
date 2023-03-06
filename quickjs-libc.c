@@ -127,7 +127,26 @@ typedef struct JSThreadState {
     int eval_script_recurse; /* only used in the main thread */
     /* not used in the main thread */
     JSWorkerMessagePipe *recv_pipe, *send_pipe;
+#ifdef CONFIG_WASM
+    void* rust_opaque;
+#endif
 } JSThreadState;
+
+#ifdef CONFIG_WASM
+void* JS_GetRustRuntimeOpaque(JSRuntime *rt)
+{
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+    return ts->rust_opaque;
+}
+
+void JS_SetRustRuntimeOpaque(JSRuntime *rt, void *opaque)
+{
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+    ts->rust_opaque = opaque;
+}
+
+extern void JS_DropRustRuntime(JSRuntime *rt);
+#endif
 
 static uint64_t os_pending_signals;
 static int (*os_poll_func)(JSContext *ctx);

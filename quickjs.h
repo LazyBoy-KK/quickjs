@@ -1047,6 +1047,26 @@ JSAtom JS_GetModuleExportEntryName(JSContext *ctx, JSModuleDef *m, int idx);
 #undef js_unlikely
 #undef js_force_inline
 
+/* define to include Atomics.* operations which depend on the OS
+   threads */
+#if !defined(EMSCRIPTEN)
+#define CONFIG_ATOMICS
+#endif
+
+enum {
+    __JS_ATOM_NULL = JS_ATOM_NULL,
+#define DEF(name, str) JS_ATOM_ ## name,
+#include "quickjs-atom.h"
+#undef DEF
+    JS_ATOM_END,
+};
+#define JS_ATOM_LAST_KEYWORD JS_ATOM_super
+#define JS_ATOM_LAST_STRICT_KEYWORD JS_ATOM_yield
+
+#ifdef CONFIG_WASM
+void* JS_GetRustRuntimeOpaque(JSRuntime *rt);
+void JS_SetRustRuntimeOpaque(JSRuntime *rt, void *opaque);
+#endif
 #ifdef __cplusplus
 } /* extern "C" { */
 #endif

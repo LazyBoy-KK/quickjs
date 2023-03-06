@@ -67,12 +67,6 @@
 #define CONFIG_PRINTF_RNDN
 #endif
 
-/* define to include Atomics.* operations which depend on the OS
-   threads */
-#if !defined(EMSCRIPTEN)
-#define CONFIG_ATOMICS
-#endif
-
 #if !defined(EMSCRIPTEN)
 /* enable stack limitation */
 #define CONFIG_STACK_CHECK
@@ -949,15 +943,6 @@ struct JSObject {
     } u;
     /* byte sizes: 40/48/72 */
 };
-enum {
-    __JS_ATOM_NULL = JS_ATOM_NULL,
-#define DEF(name, str) JS_ATOM_ ## name,
-#include "quickjs-atom.h"
-#undef DEF
-    JS_ATOM_END,
-};
-#define JS_ATOM_LAST_KEYWORD JS_ATOM_super
-#define JS_ATOM_LAST_STRICT_KEYWORD JS_ATOM_yield
 
 static const char js_atom_init[] =
 #define DEF(name, str) str "\0"
@@ -5212,6 +5197,7 @@ static force_inline JSShapeProperty *find_own_property(JSProperty **ppr,
     JSShape *sh;
     JSShapeProperty *pr, *prop;
     intptr_t h;
+    if (!p) return NULL;
     sh = p->shape;
     h = (uintptr_t)atom & sh->prop_hash_mask;
     h = prop_hash_end(sh)[-h - 1];
