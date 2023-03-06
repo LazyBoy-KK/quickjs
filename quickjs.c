@@ -27254,6 +27254,37 @@ void JS_SetModuleLoaderFunc(JSRuntime *rt,
     rt->module_loader_opaque = opaque;
 }
 
+/* Hooks into module loading functions */
+JSValueConst JS_GetModuleExport(JSContext *ctx, JSModuleDef *m, const char *export_name) {
+    JSExportEntry *me;
+    JSAtom name;
+    name = JS_NewAtom(ctx, export_name);
+    if (name == JS_ATOM_NULL)
+        goto fail;
+    me = find_export_entry(ctx, m, name);
+    JS_FreeAtom(ctx, name);
+    if (!me)
+        goto fail;
+    return JS_DupValue(ctx, me->u.local.var_ref->value);
+ fail:
+    return JS_UNDEFINED;
+}
+int JS_GetModuleExportEntriesCount(JSModuleDef *m) {
+    return m->export_entries_count;
+}
+
+JSValue JS_GetModuleExportEntry(JSContext *ctx, JSModuleDef *m, int idx) {
+    if (idx >= m->export_entries_count || idx < 0)
+        return JS_UNDEFINED;
+    return JS_DupValue(ctx, m->export_entries[idx].u.local.var_ref->value);
+}
+
+JSAtom JS_GetModuleExportEntryName(JSContext *ctx, JSModuleDef *m, int idx) {
+    if (idx >= m->export_entries_count || idx < 0)
+        return JS_ATOM_NULL;
+    return JS_DupAtom(ctx, m->export_entries[idx].export_name);
+}
+
 /* default module filename normalizer */
 static char *js_default_module_normalize_name(JSContext *ctx,
                                               const char *base_name,
