@@ -3901,6 +3901,9 @@ void js_std_loop(JSContext *ctx)
     for(;;) {
         /* execute the pending jobs */
         for(;;) {
+#ifdef CONFIG_WASM
+        JS_RunRustAsyncTask(JS_GetRuntime(ctx));
+#endif
             err = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
             if (err <= 0) {
                 if (err < 0) {

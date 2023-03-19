@@ -452,6 +452,10 @@ static int output_executable(const char *out_filename, const char *cfilename,
     *arg++ = "-lm";
     *arg++ = "-ldl";
     *arg++ = "-lpthread";
+#ifdef CONFIG_WASM
+    snprintf(libjsname, sizeof(libjsname), "%s/libquickjs_wasm_staticlib.a", lib_dir);
+    *arg++ = libjsname;
+#endif
     *arg = NULL;
     
     if (verbose) {

@@ -158,16 +158,16 @@ PROGS+=libquickjs.lto.a
 endif
 
 # examples
-ifeq ($(CROSS_PREFIX),)
-ifdef CONFIG_ASAN
-PROGS+=
-else
-PROGS+=examples/hello examples/hello_module examples/test_fib
-ifndef CONFIG_DARWIN
-PROGS+=examples/fib.so examples/point.so
-endif
-endif
-endif
+# ifeq ($(CROSS_PREFIX),)
+# ifdef CONFIG_ASAN
+# PROGS+=
+# else
+# PROGS+=examples/hello examples/hello_module examples/test_fib
+# ifndef CONFIG_DARWIN
+# PROGS+=examples/fib.so examples/point.so
+# endif
+# endif
+# endif
 
 all: $(OBJDIR) $(OBJDIR)/quickjs.check.o $(OBJDIR)/qjs.check.o $(PROGS)
 
