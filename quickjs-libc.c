@@ -65,6 +65,7 @@ typedef sig_t sighandler_t;
 #ifdef USE_WORKER
 #include <pthread.h>
 #include <stdatomic.h>
+#include <sys/mman.h>
 #endif
 
 #include "cutils.h"
@@ -101,6 +102,10 @@ typedef struct {
     /* list of SharedArrayBuffers, necessary to free the message */
     uint8_t **sab_tab;
     size_t sab_tab_len;
+#ifdef CONFIG_WASM
+    void **sab_opaque;
+    size_t sab_opaque_len;
+#endif
 } JSWorkerMessage;
 
 typedef struct {
@@ -3156,7 +3161,15 @@ typedef struct {
 
 typedef struct {
     int ref_count;
+#ifdef CONFIG_WASM
+    BOOL is_exotic;
+    JSFreeCustomSharedArrayBufferDataFunc *free_func;
+    JSDupCustomSharedArrayBufferDataFunc *dup_func;
+    uint8_t *buf;
+    void *opaque;
+#else
     uint64_t buf[0];
+#endif
 } JSSABHeader;
 
 static JSClassID js_worker_class_id;
@@ -3167,6 +3180,68 @@ static int atomic_add_int(int *ptr, int v)
     return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v) + v;
 }
 
+#ifdef CONFIG_WASM
+/* shared array buffer allocator */
+static void *js_sab_alloc(void *opaque, size_t size)
+{
+    uint8_t *ptr = malloc(size);
+    if(!ptr) 
+        return NULL;
+    return ptr;
+}
+
+static void *js_sab_wrap(
+    JSFreeCustomSharedArrayBufferDataFunc *free_func, 
+    JSDupCustomSharedArrayBufferDataFunc *dup_func, 
+    void *opaque, 
+    void *ptr,
+    BOOL is_exotic)
+{
+    JSSABHeader *sab;
+    sab = malloc(sizeof(JSSABHeader));
+    if (!sab)
+        return NULL;
+    sab->buf = (uint8_t *)ptr;
+    sab->ref_count = 0;
+    sab->is_exotic = is_exotic;
+    sab->free_func = free_func;
+    sab->dup_func = dup_func;
+    sab->opaque = opaque;
+    return sab;
+}
+
+static void js_sab_free(void *opaque, void *ptr)
+{
+    JSSABHeader *sab;
+    int ref_count;
+    sab = (JSSABHeader *)ptr;
+    if (sab->is_exotic) {
+        if (sab->free_func)
+            sab->free_func(sab->opaque);
+        free(sab);
+        return;
+    }
+    ref_count = atomic_add_int(&sab->ref_count, -1);
+    assert(ref_count >= 0);
+    if (ref_count == 0) {
+        free(sab->buf);
+        free(sab);
+    }
+}
+
+static void *js_sab_dup(void *opaque, void *ptr)
+{
+    JSSABHeader *sab;
+    sab = (JSSABHeader *)ptr;
+    if (sab->is_exotic){
+        if (sab->dup_func) 
+            return sab->dup_func(sab->opaque);
+        return NULL;
+    }
+    atomic_add_int(&sab->ref_count, 1);
+    return ptr;
+}
+#else
 /* shared array buffer allocator */
 static void *js_sab_alloc(void *opaque, size_t size)
 {
@@ -3196,6 +3271,7 @@ static void js_sab_dup(void *opaque, void *ptr)
     sab = (JSSABHeader *)((uint8_t *)ptr - sizeof(JSSABHeader));
     atomic_add_int(&sab->ref_count, 1);
 }
+#endif /* CONFIG_WASM */
 
 static JSWorkerMessagePipe *js_new_message_pipe(void)
 {
@@ -3229,9 +3305,16 @@ static void js_free_message(JSWorkerMessage *msg)
 {
     size_t i;
     /* free the SAB */
+#ifdef CONFIG_WASM
+    for(i = 0; i < msg->sab_opaque_len; i++) {
+        js_sab_free(NULL, msg->sab_opaque[i]);
+    }
+    free(msg->sab_opaque);
+#else
     for(i = 0; i < msg->sab_tab_len; i++) {
         js_sab_free(NULL, msg->sab_tab[i]);
     }
+#endif
     free(msg->sab_tab);
     free(msg->data);
     free(msg);
@@ -3454,13 +3537,23 @@ static JSValue js_worker_postMessage(JSContext *ctx, JSValueConst this_val,
     uint8_t *data;
     JSWorkerMessage *msg;
     uint8_t **sab_tab;
-    
+#ifdef CONFIG_WASM
+    void **sab_opaque;
+    size_t sab_opaque_len;
+#endif
     if (!worker)
         return JS_EXCEPTION;
     
+#ifdef CONFIG_WASM
+    data = JS_WriteObject3(ctx, &data_len, argv[0],
+                           JS_WRITE_OBJ_SAB | JS_WRITE_OBJ_REFERENCE,
+                           &sab_tab, &sab_tab_len,
+                           &sab_opaque, &sab_opaque_len);
+#else
     data = JS_WriteObject2(ctx, &data_len, argv[0],
                            JS_WRITE_OBJ_SAB | JS_WRITE_OBJ_REFERENCE,
                            &sab_tab, &sab_tab_len);
+#endif
     if (!data)
         return JS_EXCEPTION;
 
@@ -3483,13 +3576,28 @@ static JSValue js_worker_postMessage(JSContext *ctx, JSValueConst this_val,
     memcpy(msg->sab_tab, sab_tab, sizeof(msg->sab_tab[0]) * sab_tab_len);
     msg->sab_tab_len = sab_tab_len;
 
+#ifdef CONFIG_WASM
+    msg->sab_opaque = malloc(sizeof(msg->sab_opaque[0]) * sab_opaque_len);
+    if (!msg->sab_opaque)
+        goto fail;
+    memcpy(msg->sab_opaque, sab_opaque, sizeof(msg->sab_opaque[0]) * sab_opaque_len);
+    msg->sab_opaque_len = sab_opaque_len;
+    js_free(ctx, sab_opaque);
+#endif
+
     js_free(ctx, data);
     js_free(ctx, sab_tab);
     
     /* increment the SAB reference counts */
+#ifdef CONFIG_WASM
+    for(i = 0; i < msg->sab_opaque_len; i++) {
+        msg->sab_opaque[i] = js_sab_dup(NULL, msg->sab_opaque[i]);
+    }
+#else
     for(i = 0; i < msg->sab_tab_len; i++) {
         js_sab_dup(NULL, msg->sab_tab[i]);
     }
+#endif
 
     ps = worker->send_pipe;
     pthread_mutex_lock(&ps->mutex);
@@ -3807,6 +3915,9 @@ void js_std_init_handlers(JSRuntime *rt)
         sf.sab_alloc = js_sab_alloc;
         sf.sab_free = js_sab_free;
         sf.sab_dup = js_sab_dup;
+#ifdef CONFIG_WASM
+        sf.sab_wrap = js_sab_wrap;
+#endif
         JS_SetSharedArrayBufferFunctions(rt, &sf);
     }
 #endif

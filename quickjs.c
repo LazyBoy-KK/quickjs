@@ -109,72 +109,72 @@
 #include <errno.h>
 #endif
 
-enum {
-    /* classid tag        */    /* union usage   | properties */
-    JS_CLASS_OBJECT = 1,        /* must be first */
-    JS_CLASS_ARRAY,             /* u.array       | length */
-    JS_CLASS_ERROR,
-    JS_CLASS_NUMBER,            /* u.object_data */
-    JS_CLASS_STRING,            /* u.object_data */
-    JS_CLASS_BOOLEAN,           /* u.object_data */
-    JS_CLASS_SYMBOL,            /* u.object_data */
-    JS_CLASS_ARGUMENTS,         /* u.array       | length */
-    JS_CLASS_MAPPED_ARGUMENTS,  /*               | length */
-    JS_CLASS_DATE,              /* u.object_data */
-    JS_CLASS_MODULE_NS,
-    JS_CLASS_C_FUNCTION,        /* u.cfunc */
-    JS_CLASS_BYTECODE_FUNCTION, /* u.func */
-    JS_CLASS_BOUND_FUNCTION,    /* u.bound_function */
-    JS_CLASS_C_FUNCTION_DATA,   /* u.c_function_data_record */
-    JS_CLASS_GENERATOR_FUNCTION, /* u.func */
-    JS_CLASS_FOR_IN_ITERATOR,   /* u.for_in_iterator */
-    JS_CLASS_REGEXP,            /* u.regexp */
-    JS_CLASS_ARRAY_BUFFER,      /* u.array_buffer */
-    JS_CLASS_SHARED_ARRAY_BUFFER, /* u.array_buffer */
-    JS_CLASS_UINT8C_ARRAY,      /* u.array (typed_array) */
-    JS_CLASS_INT8_ARRAY,        /* u.array (typed_array) */
-    JS_CLASS_UINT8_ARRAY,       /* u.array (typed_array) */
-    JS_CLASS_INT16_ARRAY,       /* u.array (typed_array) */
-    JS_CLASS_UINT16_ARRAY,      /* u.array (typed_array) */
-    JS_CLASS_INT32_ARRAY,       /* u.array (typed_array) */
-    JS_CLASS_UINT32_ARRAY,      /* u.array (typed_array) */
-#ifdef CONFIG_BIGNUM
-    JS_CLASS_BIG_INT64_ARRAY,   /* u.array (typed_array) */
-    JS_CLASS_BIG_UINT64_ARRAY,  /* u.array (typed_array) */
-#endif
-    JS_CLASS_FLOAT32_ARRAY,     /* u.array (typed_array) */
-    JS_CLASS_FLOAT64_ARRAY,     /* u.array (typed_array) */
-    JS_CLASS_DATAVIEW,          /* u.typed_array */
-#ifdef CONFIG_BIGNUM
-    JS_CLASS_BIG_INT,           /* u.object_data */
-    JS_CLASS_BIG_FLOAT,         /* u.object_data */
-    JS_CLASS_FLOAT_ENV,         /* u.float_env */
-    JS_CLASS_BIG_DECIMAL,       /* u.object_data */
-    JS_CLASS_OPERATOR_SET,      /* u.operator_set */
-#endif
-    JS_CLASS_MAP,               /* u.map_state */
-    JS_CLASS_SET,               /* u.map_state */
-    JS_CLASS_WEAKMAP,           /* u.map_state */
-    JS_CLASS_WEAKSET,           /* u.map_state */
-    JS_CLASS_MAP_ITERATOR,      /* u.map_iterator_data */
-    JS_CLASS_SET_ITERATOR,      /* u.map_iterator_data */
-    JS_CLASS_ARRAY_ITERATOR,    /* u.array_iterator_data */
-    JS_CLASS_STRING_ITERATOR,   /* u.array_iterator_data */
-    JS_CLASS_REGEXP_STRING_ITERATOR,   /* u.regexp_string_iterator_data */
-    JS_CLASS_GENERATOR,         /* u.generator_data */
-    JS_CLASS_PROXY,             /* u.proxy_data */
-    JS_CLASS_PROMISE,           /* u.promise_data */
-    JS_CLASS_PROMISE_RESOLVE_FUNCTION,  /* u.promise_function_data */
-    JS_CLASS_PROMISE_REJECT_FUNCTION,   /* u.promise_function_data */
-    JS_CLASS_ASYNC_FUNCTION,            /* u.func */
-    JS_CLASS_ASYNC_FUNCTION_RESOLVE,    /* u.async_function_data */
-    JS_CLASS_ASYNC_FUNCTION_REJECT,     /* u.async_function_data */
-    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,  /* u.async_from_sync_iterator_data */
-    JS_CLASS_ASYNC_GENERATOR_FUNCTION,  /* u.func */
-    JS_CLASS_ASYNC_GENERATOR,   /* u.async_generator_data */
+// enum {
+//     /* classid tag        */    /* union usage   | properties */
+//     JS_CLASS_OBJECT = 1,        /* must be first */
+//     JS_CLASS_ARRAY,             /* u.array       | length */
+//     JS_CLASS_ERROR,
+//     JS_CLASS_NUMBER,            /* u.object_data */
+//     JS_CLASS_STRING,            /* u.object_data */
+//     JS_CLASS_BOOLEAN,           /* u.object_data */
+//     JS_CLASS_SYMBOL,            /* u.object_data */
+//     JS_CLASS_ARGUMENTS,         /* u.array       | length */
+//     JS_CLASS_MAPPED_ARGUMENTS,  /*               | length */
+//     JS_CLASS_DATE,              /* u.object_data */
+//     JS_CLASS_MODULE_NS,
+//     JS_CLASS_C_FUNCTION,        /* u.cfunc */
+//     JS_CLASS_BYTECODE_FUNCTION, /* u.func */
+//     JS_CLASS_BOUND_FUNCTION,    /* u.bound_function */
+//     JS_CLASS_C_FUNCTION_DATA,   /* u.c_function_data_record */
+//     JS_CLASS_GENERATOR_FUNCTION, /* u.func */
+//     JS_CLASS_FOR_IN_ITERATOR,   /* u.for_in_iterator */
+//     JS_CLASS_REGEXP,            /* u.regexp */
+//     JS_CLASS_ARRAY_BUFFER,      /* u.array_buffer */
+//     JS_CLASS_SHARED_ARRAY_BUFFER, /* u.array_buffer */
+//     JS_CLASS_UINT8C_ARRAY,      /* u.array (typed_array) */
+//     JS_CLASS_INT8_ARRAY,        /* u.array (typed_array) */
+//     JS_CLASS_UINT8_ARRAY,       /* u.array (typed_array) */
+//     JS_CLASS_INT16_ARRAY,       /* u.array (typed_array) */
+//     JS_CLASS_UINT16_ARRAY,      /* u.array (typed_array) */
+//     JS_CLASS_INT32_ARRAY,       /* u.array (typed_array) */
+//     JS_CLASS_UINT32_ARRAY,      /* u.array (typed_array) */
+// #ifdef CONFIG_BIGNUM
+//     JS_CLASS_BIG_INT64_ARRAY,   /* u.array (typed_array) */
+//     JS_CLASS_BIG_UINT64_ARRAY,  /* u.array (typed_array) */
+// #endif
+//     JS_CLASS_FLOAT32_ARRAY,     /* u.array (typed_array) */
+//     JS_CLASS_FLOAT64_ARRAY,     /* u.array (typed_array) */
+//     JS_CLASS_DATAVIEW,          /* u.typed_array */
+// #ifdef CONFIG_BIGNUM
+//     JS_CLASS_BIG_INT,           /* u.object_data */
+//     JS_CLASS_BIG_FLOAT,         /* u.object_data */
+//     JS_CLASS_FLOAT_ENV,         /* u.float_env */
+//     JS_CLASS_BIG_DECIMAL,       /* u.object_data */
+//     JS_CLASS_OPERATOR_SET,      /* u.operator_set */
+// #endif
+//     JS_CLASS_MAP,               /* u.map_state */
+//     JS_CLASS_SET,               /* u.map_state */
+//     JS_CLASS_WEAKMAP,           /* u.map_state */
+//     JS_CLASS_WEAKSET,           /* u.map_state */
+//     JS_CLASS_MAP_ITERATOR,      /* u.map_iterator_data */
+//     JS_CLASS_SET_ITERATOR,      /* u.map_iterator_data */
+//     JS_CLASS_ARRAY_ITERATOR,    /* u.array_iterator_data */
+//     JS_CLASS_STRING_ITERATOR,   /* u.array_iterator_data */
+//     JS_CLASS_REGEXP_STRING_ITERATOR,   /* u.regexp_string_iterator_data */
+//     JS_CLASS_GENERATOR,         /* u.generator_data */
+//     JS_CLASS_PROXY,             /* u.proxy_data */
+//     JS_CLASS_PROMISE,           /* u.promise_data */
+//     JS_CLASS_PROMISE_RESOLVE_FUNCTION,  /* u.promise_function_data */
+//     JS_CLASS_PROMISE_REJECT_FUNCTION,   /* u.promise_function_data */
+//     JS_CLASS_ASYNC_FUNCTION,            /* u.func */
+//     JS_CLASS_ASYNC_FUNCTION_RESOLVE,    /* u.async_function_data */
+//     JS_CLASS_ASYNC_FUNCTION_REJECT,     /* u.async_function_data */
+//     JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,  /* u.async_from_sync_iterator_data */
+//     JS_CLASS_ASYNC_GENERATOR_FUNCTION,  /* u.func */
+//     JS_CLASS_ASYNC_GENERATOR,   /* u.async_generator_data */
 
-    JS_CLASS_INIT_COUNT, /* last entry for predefined classes */
-};
+//     JS_CLASS_INIT_COUNT, /* last entry for predefined classes */
+// };
 
 /* number of typed array types */
 #define JS_TYPED_ARRAY_COUNT  (JS_CLASS_FLOAT64_ARRAY - JS_CLASS_UINT8C_ARRAY + 1)
@@ -33926,6 +33926,11 @@ typedef struct BCWriterState {
     uint8_t **sab_tab;
     int sab_tab_len;
     int sab_tab_size;
+#ifdef CONFIG_WASM
+    void **sab_opaque;
+    int sab_opaque_len;
+    int sab_opaque_size;
+#endif
     /* list of referenced objects (used if allow_reference = TRUE) */
     JSObjectList object_list;
 } BCWriterState;
@@ -34561,9 +34566,18 @@ static int JS_WriteSharedArrayBuffer(BCWriterState *s, JSValueConst obj)
     bc_put_u8(s, BC_TAG_SHARED_ARRAY_BUFFER);
     bc_put_leb128(s, abuf->byte_length);
     bc_put_u64(s, (uintptr_t)abuf->data);
+#ifdef CONFIG_WASM
+    bc_put_u64(s, (uintptr_t)abuf->opaque);
+#endif
     if (js_resize_array(s->ctx, (void **)&s->sab_tab, sizeof(s->sab_tab[0]),
                         &s->sab_tab_size, s->sab_tab_len + 1))
         return -1;
+#ifdef CONFIG_WASM
+    if (js_resize_array(s->ctx, (void **)&s->sab_opaque, sizeof(s->sab_opaque[0]),
+                        &s->sab_opaque_size, s->sab_opaque_len + 1))
+        return -1;
+    s->sab_opaque[s->sab_opaque_len++] = abuf->opaque;
+#endif
     /* keep the SAB pointer so that the user can clone it or free it */
     s->sab_tab[s->sab_tab_len++] = abuf->data;
     return 0;
@@ -34746,6 +34760,58 @@ static int JS_WriteObjectAtoms(BCWriterState *s)
     return -1;
 }
 
+#ifdef CONFIG_WASM
+uint8_t *JS_WriteObject3(JSContext *ctx, size_t *psize, JSValueConst obj,
+                        int flags, uint8_t ***psab_tab, size_t *psab_tab_len,
+                        void ***psab_opaque, size_t *psab_opaque_len)
+{
+    BCWriterState ss, *s = &ss;
+
+    memset(s, 0, sizeof(*s));
+    s->ctx = ctx;
+    /* XXX: byte swapped output is untested */
+    s->byte_swap = ((flags & JS_WRITE_OBJ_BSWAP) != 0);
+    s->allow_bytecode = ((flags & JS_WRITE_OBJ_BYTECODE) != 0);
+    s->allow_sab = ((flags & JS_WRITE_OBJ_SAB) != 0);
+    s->allow_reference = ((flags & JS_WRITE_OBJ_REFERENCE) != 0);
+    /* XXX: could use a different version when bytecode is included */
+    if (s->allow_bytecode)
+        s->first_atom = JS_ATOM_END;
+    else
+        s->first_atom = 1;
+    js_dbuf_init(ctx, &s->dbuf);
+    js_object_list_init(&s->object_list);
+    
+    if (JS_WriteObjectRec(s, obj))
+        goto fail;
+    if (JS_WriteObjectAtoms(s))
+        goto fail;
+    js_object_list_end(ctx, &s->object_list);
+    js_free(ctx, s->atom_to_idx);
+    js_free(ctx, s->idx_to_atom);
+    *psize = s->dbuf.size;
+    if (psab_tab)
+        *psab_tab = s->sab_tab;
+    if (psab_tab_len)
+        *psab_tab_len = s->sab_tab_len;
+    if (psab_opaque)
+        *psab_opaque = s->sab_opaque;
+    if (psab_opaque_len)
+        *psab_opaque_len = s->sab_opaque_len;
+    return s->dbuf.buf;
+ fail:
+    js_object_list_end(ctx, &s->object_list);
+    js_free(ctx, s->atom_to_idx);
+    js_free(ctx, s->idx_to_atom);
+    dbuf_free(&s->dbuf);
+    *psize = 0;
+    if (psab_tab)
+        *psab_tab = NULL;
+    if (psab_tab_len)
+        *psab_tab_len = 0;
+    return NULL;
+}
+#endif
 uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst obj,
                          int flags, uint8_t ***psab_tab, size_t *psab_tab_len)
 {
@@ -35689,17 +35755,29 @@ static JSValue JS_ReadSharedArrayBuffer(BCReaderState *s)
     uint8_t *data_ptr;
     JSValue obj;
     uint64_t u64;
+#ifdef CONFIG_WASM
+    void *opaque;
+#endif
     
     if (bc_get_leb128(s, &byte_length))
         return JS_EXCEPTION;
     if (bc_get_u64(s, &u64))
         return JS_EXCEPTION;
     data_ptr = (uint8_t *)(uintptr_t)u64;
+#ifdef CONFIG_WASM
+    if (bc_get_u64(s, &u64))
+        return JS_EXCEPTION;
+    opaque = (void *)(uintptr_t)u64;
+    obj = js_array_buffer_constructor3(ctx, JS_UNDEFINED, byte_length,
+                                       JS_CLASS_SHARED_ARRAY_BUFFER,
+                                       data_ptr, NULL, opaque, FALSE);
+#else
     /* the SharedArrayBuffer is cloned */
     obj = js_array_buffer_constructor3(ctx, JS_UNDEFINED, byte_length,
                                        JS_CLASS_SHARED_ARRAY_BUFFER,
                                        data_ptr,
                                        NULL, NULL, FALSE);
+#endif
     if (JS_IsException(obj))
         goto fail;
     if (BC_add_object_ref(s, obj))
@@ -51183,14 +51261,25 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
     } else {
         if (class_id == JS_CLASS_SHARED_ARRAY_BUFFER &&
             rt->sab_funcs.sab_dup) {
+#ifdef CONFIG_WASM
+            opaque = rt->sab_funcs.sab_dup(rt->sab_funcs.sab_opaque, opaque);
+#else
             rt->sab_funcs.sab_dup(rt->sab_funcs.sab_opaque, buf);
+#endif
         }
         abuf->data = buf;
     }
     init_list_head(&abuf->array_list);
     abuf->detached = FALSE;
     abuf->shared = (class_id == JS_CLASS_SHARED_ARRAY_BUFFER);
+#ifdef CONFIG_WASM
+    if (abuf->shared && rt->sab_funcs.sab_wrap && alloc_flag)
+        abuf->opaque = rt->sab_funcs.sab_wrap(NULL, NULL, opaque, abuf->data, FALSE);
+    else
+        abuf->opaque = opaque;
+#else
     abuf->opaque = opaque;
+#endif
     abuf->free_func = free_func;
     if (alloc_flag && buf)
         memcpy(abuf->data, buf, len);
@@ -51201,6 +51290,61 @@ static JSValue js_array_buffer_constructor3(JSContext *ctx,
     js_free(ctx, abuf);
     return JS_EXCEPTION;
 }
+
+#ifdef CONFIG_WASM
+static JSValue js_array_buffer_constructor4(JSContext *ctx,
+                                            JSValueConst new_target,
+                                            uint64_t len, JSClassID class_id,
+                                            uint8_t *buf,
+                                            JSFreeArrayBufferDataFunc *free_func,
+                                            JSDupCustomSharedArrayBufferDataFunc *custom_dup_func,
+                                            JSFreeCustomSharedArrayBufferDataFunc *custom_free_func,
+                                            void *opaque)
+{
+    JSRuntime *rt = ctx->rt;
+    JSValue obj;
+    JSArrayBuffer *abuf = NULL;
+
+    obj = js_create_from_ctor(ctx, new_target, class_id);
+    if (JS_IsException(obj))
+        return obj;
+    /* XXX: we are currently limited to 2 GB */
+    if (len > INT32_MAX) {
+        JS_ThrowRangeError(ctx, "invalid array buffer length");
+        goto fail;
+    }
+    abuf = js_malloc(ctx, sizeof(*abuf));
+    if (!abuf)
+        goto fail;
+    abuf->byte_length = len;
+    if (!rt->sab_funcs.sab_wrap) 
+        goto fail;
+    abuf->opaque = rt->sab_funcs.sab_wrap(custom_free_func, custom_dup_func, opaque, buf, TRUE);
+    if (!abuf->opaque)
+        goto fail;
+    init_list_head(&abuf->array_list);
+    abuf->detached = FALSE;
+    abuf->shared = (class_id == JS_CLASS_SHARED_ARRAY_BUFFER);
+    abuf->data = buf;
+    abuf->free_func = free_func;
+    JS_SetOpaque(obj, abuf);
+    return obj;
+ fail:
+    JS_FreeValue(ctx, obj);
+    js_free(ctx, abuf);
+    return JS_EXCEPTION;
+}
+
+JSValue JS_NewSharedArrayBufferExotic(JSContext *ctx, uint8_t *buf, size_t len,
+                                      JSFreeArrayBufferDataFunc *free_func, 
+                                      JSDupCustomSharedArrayBufferDataFunc *custom_dup_func,
+                                      JSFreeCustomSharedArrayBufferDataFunc *custom_free_func,
+                                      void *opaque)
+{
+    return js_array_buffer_constructor4(ctx, JS_UNDEFINED, len, JS_CLASS_SHARED_ARRAY_BUFFER,
+                                        buf, free_func, custom_dup_func, custom_free_func, opaque);
+}
+#endif /* CONFIG_WASM */
 
 static void js_array_buffer_free(JSRuntime *rt, void *opaque, void *ptr)
 {
@@ -51274,12 +51418,21 @@ static void js_array_buffer_finalizer(JSRuntime *rt, JSValue val)
            array finalizers using it, so abuf->array_list is not
            necessarily empty. */
         // assert(list_empty(&abuf->array_list));
+#ifdef CONFIG_WASM
+        if(abuf->shared && rt->sab_funcs.sab_free) {
+            rt->sab_funcs.sab_free(rt->sab_funcs.sab_opaque, abuf->opaque);
+        } else {
+            if (abuf->free_func)
+                abuf->free_func(rt, abuf->opaque, abuf->data);
+        }
+#else
         if (abuf->shared && rt->sab_funcs.sab_free) {
             rt->sab_funcs.sab_free(rt->sab_funcs.sab_opaque, abuf->data);
         } else {
             if (abuf->free_func)
                 abuf->free_func(rt, abuf->opaque, abuf->data);
         }
+#endif
         js_free_rt(rt, abuf);
     }
 }
@@ -51329,8 +51482,8 @@ void JS_DetachArrayBuffer(JSContext *ctx, JSValueConst obj)
 
     if (!abuf || abuf->detached)
         return;
-    if (abuf->free_func)
-        abuf->free_func(ctx->rt, abuf->opaque, abuf->data);
+    // if (abuf->free_func)
+    //     abuf->free_func(ctx->rt, abuf->opaque, abuf->data);
     abuf->data = NULL;
     abuf->byte_length = 0;
     abuf->detached = TRUE;

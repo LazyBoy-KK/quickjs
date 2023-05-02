@@ -28,6 +28,15 @@
 #include <stdio.h>
 #include <stdint.h>
 
+#if !defined(_WIN32)
+/* enable the os.Worker API. IT relies on POSIX threads */
+#define USE_WORKER
+#endif
+
+#ifdef USE_WORKER
+#include <stdatomic.h>
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -822,12 +831,35 @@ JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
                                size_t *pbyte_offset,
                                size_t *pbyte_length,
                                size_t *pbytes_per_element);
+
+#ifdef CONFIG_WASM
+typedef void JSFreeCustomSharedArrayBufferDataFunc(void *opaque);
+typedef void *JSDupCustomSharedArrayBufferDataFunc(void *opaque);
+#endif /* CONFIG_WASM */
+
 typedef struct {
     void *(*sab_alloc)(void *opaque, size_t size);
     void (*sab_free)(void *opaque, void *ptr);
+#ifdef CONFIG_WASM
+    void *(*sab_dup)(void *opaque, void *ptr);
+    void *(*sab_wrap)(
+        JSFreeCustomSharedArrayBufferDataFunc *free_func,
+        JSDupCustomSharedArrayBufferDataFunc *dup_func,
+        void *opaque, void *ptr, JS_BOOL is_exotic);
+#else
     void (*sab_dup)(void *opaque, void *ptr);
+#endif
     void *sab_opaque;
 } JSSharedArrayBufferFunctions;
+
+#ifdef CONFIG_WASM
+JSValue JS_NewSharedArrayBufferExotic(JSContext *ctx, uint8_t *buf, size_t len,
+                                      JSFreeArrayBufferDataFunc *free_func, 
+                                      JSDupCustomSharedArrayBufferDataFunc *custom_dup_func,
+                                      JSFreeCustomSharedArrayBufferDataFunc *custom_free_func,
+                                      void *opaque);
+#endif
+
 void JS_SetSharedArrayBufferFunctions(JSRuntime *rt,
                                       const JSSharedArrayBufferFunctions *sf);
 
@@ -885,6 +917,12 @@ uint8_t *JS_WriteObject(JSContext *ctx, size_t *psize, JSValueConst obj,
                         int flags);
 uint8_t *JS_WriteObject2(JSContext *ctx, size_t *psize, JSValueConst obj,
                          int flags, uint8_t ***psab_tab, size_t *psab_tab_len);
+
+#ifdef CONFIG_WASM
+uint8_t *JS_WriteObject3(JSContext *ctx, size_t *psize, JSValueConst obj,
+                        int flags, uint8_t ***psab_tab, size_t *psab_tab_len,
+                        void ***psab_opaque, size_t *psab_opaque_len);
+#endif
 
 #define JS_READ_OBJ_BYTECODE  (1 << 0) /* allow function/module */
 #define JS_READ_OBJ_ROM_DATA  (1 << 1) /* avoid duplicating 'buf' data */
@@ -1052,7 +1090,6 @@ JSAtom JS_GetModuleExportEntryName(JSContext *ctx, JSModuleDef *m, int idx);
 #if !defined(EMSCRIPTEN)
 #define CONFIG_ATOMICS
 #endif
-
 enum {
     __JS_ATOM_NULL = JS_ATOM_NULL,
 #define DEF(name, str) JS_ATOM_ ## name,
@@ -1067,6 +1104,80 @@ enum {
 void* JS_GetRustRuntimeOpaque(JSRuntime *rt);
 void JS_SetRustRuntimeOpaque(JSRuntime *rt, void *opaque);
 #endif
+
+enum {
+    /* classid tag        */    /* union usage   | properties */
+    JS_CLASS_OBJECT = 1,        /* must be first */
+    JS_CLASS_ARRAY,             /* u.array       | length */
+    JS_CLASS_ERROR,
+    JS_CLASS_NUMBER,            /* u.object_data */
+    JS_CLASS_STRING,            /* u.object_data */
+    JS_CLASS_BOOLEAN,           /* u.object_data */
+    JS_CLASS_SYMBOL,            /* u.object_data */
+    JS_CLASS_ARGUMENTS,         /* u.array       | length */
+    JS_CLASS_MAPPED_ARGUMENTS,  /*               | length */
+    JS_CLASS_DATE,              /* u.object_data */
+    JS_CLASS_MODULE_NS,
+    JS_CLASS_C_FUNCTION,        /* u.cfunc */
+    JS_CLASS_BYTECODE_FUNCTION, /* u.func */
+    JS_CLASS_BOUND_FUNCTION,    /* u.bound_function */
+    JS_CLASS_C_FUNCTION_DATA,   /* u.c_function_data_record */
+    JS_CLASS_GENERATOR_FUNCTION, /* u.func */
+    JS_CLASS_FOR_IN_ITERATOR,   /* u.for_in_iterator */
+    JS_CLASS_REGEXP,            /* u.regexp */
+    JS_CLASS_ARRAY_BUFFER,      /* u.array_buffer */
+    JS_CLASS_SHARED_ARRAY_BUFFER, /* u.array_buffer */
+    JS_CLASS_UINT8C_ARRAY,      /* u.array (typed_array) */
+    JS_CLASS_INT8_ARRAY,        /* u.array (typed_array) */
+    JS_CLASS_UINT8_ARRAY,       /* u.array (typed_array) */
+    JS_CLASS_INT16_ARRAY,       /* u.array (typed_array) */
+    JS_CLASS_UINT16_ARRAY,      /* u.array (typed_array) */
+    JS_CLASS_INT32_ARRAY,       /* u.array (typed_array) */
+    JS_CLASS_UINT32_ARRAY,      /* u.array (typed_array) */
+#ifdef CONFIG_BIGNUM
+    JS_CLASS_BIG_INT64_ARRAY,   /* u.array (typed_array) */
+    JS_CLASS_BIG_UINT64_ARRAY,  /* u.array (typed_array) */
+#endif
+    JS_CLASS_FLOAT32_ARRAY,     /* u.array (typed_array) */
+    JS_CLASS_FLOAT64_ARRAY,     /* u.array (typed_array) */
+    JS_CLASS_DATAVIEW,          /* u.typed_array */
+#ifdef CONFIG_BIGNUM
+    JS_CLASS_BIG_INT,           /* u.object_data */
+    JS_CLASS_BIG_FLOAT,         /* u.object_data */
+    JS_CLASS_FLOAT_ENV,         /* u.float_env */
+    JS_CLASS_BIG_DECIMAL,       /* u.object_data */
+    JS_CLASS_OPERATOR_SET,      /* u.operator_set */
+#endif
+    JS_CLASS_MAP,               /* u.map_state */
+    JS_CLASS_SET,               /* u.map_state */
+    JS_CLASS_WEAKMAP,           /* u.map_state */
+    JS_CLASS_WEAKSET,           /* u.map_state */
+    JS_CLASS_MAP_ITERATOR,      /* u.map_iterator_data */
+    JS_CLASS_SET_ITERATOR,      /* u.map_iterator_data */
+    JS_CLASS_ARRAY_ITERATOR,    /* u.array_iterator_data */
+    JS_CLASS_STRING_ITERATOR,   /* u.array_iterator_data */
+    JS_CLASS_REGEXP_STRING_ITERATOR,   /* u.regexp_string_iterator_data */
+    JS_CLASS_GENERATOR,         /* u.generator_data */
+    JS_CLASS_PROXY,             /* u.proxy_data */
+    JS_CLASS_PROMISE,           /* u.promise_data */
+    JS_CLASS_PROMISE_RESOLVE_FUNCTION,  /* u.promise_function_data */
+    JS_CLASS_PROMISE_REJECT_FUNCTION,   /* u.promise_function_data */
+    JS_CLASS_ASYNC_FUNCTION,            /* u.func */
+    JS_CLASS_ASYNC_FUNCTION_RESOLVE,    /* u.async_function_data */
+    JS_CLASS_ASYNC_FUNCTION_REJECT,     /* u.async_function_data */
+    JS_CLASS_ASYNC_FROM_SYNC_ITERATOR,  /* u.async_from_sync_iterator_data */
+    JS_CLASS_ASYNC_GENERATOR_FUNCTION,  /* u.func */
+    JS_CLASS_ASYNC_GENERATOR,   /* u.async_generator_data */
+
+    JS_CLASS_INIT_COUNT, /* last entry for predefined classes */
+};
+
+#ifdef CONFIG_WASM
+void *JS_SharedMemoryAlloc(size_t size);
+void JS_SharedMemoryFree(void *ptr);
+void JS_SharedMemoryDup(void *ptr);
+#endif
+
 #ifdef __cplusplus
 } /* extern "C" { */
 #endif
