@@ -4013,10 +4013,14 @@ void js_std_loop(JSContext *ctx)
         /* execute the pending jobs */
         for(;;) {
 #ifdef CONFIG_WASM
-        JS_RunRustAsyncTask(JS_GetRuntime(ctx));
+        BOOL complete = JS_RunRustAsyncTask(JS_GetRuntime(ctx));
 #endif
             err = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
+#ifndef CONFIG_WASM
             if (err <= 0) {
+#else
+            if (err <= 0 && complete) {
+#endif
                 if (err < 0) {
                     js_std_dump_error(ctx1);
                 }
