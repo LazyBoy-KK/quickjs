@@ -565,6 +565,7 @@ int main(int argc, char **argv)
     }
     return 0;
  fail:
+    JS_DropRustRuntime(rt);
     js_std_free_handlers(rt);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);

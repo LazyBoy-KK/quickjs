@@ -3202,7 +3202,7 @@ static void *js_sab_wrap(
     if (!sab)
         return NULL;
     sab->buf = (uint8_t *)ptr;
-    sab->ref_count = 0;
+    sab->ref_count = 1;
     sab->is_exotic = is_exotic;
     sab->free_func = free_func;
     sab->dup_func = dup_func;
