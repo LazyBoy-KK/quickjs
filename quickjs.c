@@ -9709,6 +9709,20 @@ BOOL JS_IsFunction(JSContext *ctx, JSValueConst val)
     }
 }
 
+#ifdef CONFIG_WASM
+BOOL JS_IsAsyncFunction(JSContext *ctx, JSValueConst val)
+{
+    JSObject *p;
+    if (JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT)
+        return FALSE;
+    p = JS_VALUE_GET_OBJ(val);
+    if (p->class_id == JS_CLASS_ASYNC_FUNCTION)
+        return TRUE;
+    else
+        return FALSE;
+}
+#endif
+
 BOOL JS_IsCFunction(JSContext *ctx, JSValueConst val, JSCFunction *func, int magic)
 {
     JSObject *p;
