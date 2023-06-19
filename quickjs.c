@@ -9763,6 +9763,23 @@ BOOL JS_IsError(JSContext *ctx, JSValueConst val)
     return (p->class_id == JS_CLASS_ERROR);
 }
 
+#ifdef CONFIG_WASM
+BOOL JS_InstanceOfError(JSContext *ctx, JSValueConst val)
+{
+    JSValue error_ctor = JS_GetPropertyStr(ctx, ctx->global_obj, "error");
+    return JS_IsInstanceOf(ctx, val, error_ctor);
+}
+
+JSClassID JS_GetClassIdFromValue(JSContext *ctx, JSValue val)
+{
+    JSObject *p;
+    if (JS_VALUE_GET_TAG(val) != JS_TAG_OBJECT)
+        return 0;
+    p = JS_VALUE_GET_OBJ(val);
+    return p->class_id;
+}
+#endif
+
 /* used to avoid catching interrupt exceptions */
 BOOL JS_IsUncatchableError(JSContext *ctx, JSValueConst val)
 {

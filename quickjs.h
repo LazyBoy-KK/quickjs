@@ -724,6 +724,8 @@ JSValue JS_NewObject(JSContext *ctx);
 
 #ifdef CONFIG_WASM
 JS_BOOL JS_IsAsyncFunction(JSContext *ctx, JSValueConst val);
+JS_BOOL JS_InstanceOfError(JSContext *ctx, JSValueConst val);
+JSClassID JS_GetClassIdFromValue(JSContext *ctx, JSValue val);
 #endif
 
 JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
