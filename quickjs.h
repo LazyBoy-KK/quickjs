@@ -356,6 +356,16 @@ void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func);
 void JS_RunGC(JSRuntime *rt);
 JS_BOOL JS_IsLiveObject(JSRuntime *rt, JSValueConst obj);
 
+#ifdef CONFIG_WASM
+enum {
+    JS_GC_UNKNOWN = 0,
+    JS_GC_DECREF,
+    JS_GC_INCREF,
+};
+
+uint32_t JS_GetNowGCPhaseRust();
+#endif
+
 JSContext *JS_NewContext(JSRuntime *rt);
 void JS_FreeContext(JSContext *s);
 JSContext *JS_DupContext(JSContext *ctx);

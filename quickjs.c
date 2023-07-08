@@ -5783,15 +5783,32 @@ static void gc_free_cycles(JSRuntime *rt)
     init_list_head(&rt->gc_zero_ref_count_list);
 }
 
+#ifdef CONFIG_WASM
+uint32_t now_gc_phase_rust = 0;
+
+uint32_t JS_GetNowGCPhaseRust() {
+    return now_gc_phase_rust;
+}
+#endif
+
 void JS_RunGC(JSRuntime *rt)
 {
+#ifdef CONFIG_WASM
+    now_gc_phase_rust = JS_GC_DECREF;
+#endif
     /* decrement the reference of the children of each object. mark =
        1 after this pass. */
     gc_decref(rt);
 
+#ifdef CONFIG_WASM
+    now_gc_phase_rust = JS_GC_INCREF;
+#endif
     /* keep the GC objects with a non zero refcount and their childs */
     gc_scan(rt);
 
+#ifdef CONFIG_WASM
+    now_gc_phase_rust = JS_GC_UNKNOWN;
+#endif
     /* free the GC objects in a cycle */
     gc_free_cycles(rt);
 }
