@@ -62,7 +62,7 @@ typedef struct JSClass JSClass;
 typedef uint32_t JSClassID;
 typedef uint32_t JSAtom;
 
-#if INTPTR_MAX >= INT64_MAX
+#if (INTPTR_MAX >= INT64_MAX) || defined(ANDROID_ARM64V8A)
 #define JS_PTR64
 #define JS_PTR64_DEF(a) a
 #else
@@ -355,17 +355,6 @@ typedef void JS_MarkFunc(JSRuntime *rt, JSGCObjectHeader *gp);
 void JS_MarkValue(JSRuntime *rt, JSValueConst val, JS_MarkFunc *mark_func);
 void JS_RunGC(JSRuntime *rt);
 JS_BOOL JS_IsLiveObject(JSRuntime *rt, JSValueConst obj);
-
-#ifdef CONFIG_WASM
-enum {
-    JS_GC_UNKNOWN = 0,
-    JS_GC_DECREF,
-    JS_GC_INCREF,
-};
-
-uint32_t JS_GetNowGCPhaseRust();
-#endif
-
 JSContext *JS_NewContext(JSRuntime *rt);
 void JS_FreeContext(JSContext *s);
 JSContext *JS_DupContext(JSContext *ctx);
@@ -1191,6 +1180,7 @@ void *JS_SharedMemoryAlloc(size_t size);
 void JS_SharedMemoryFree(void *ptr);
 void JS_SharedMemoryDup(void *ptr);
 #endif
+void JS_DebugBacktrace();
 
 #ifdef __cplusplus
 } /* extern "C" { */

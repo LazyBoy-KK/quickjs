@@ -28,7 +28,7 @@ endif
 # Windows cross compilation from Linux
 #CONFIG_WIN32=y
 # use link time optimization (smaller and faster executables but slower build)
-CONFIG_LTO=y
+# CONFIG_LTO=y
 # consider warnings as errors (for development)
 #CONFIG_WERROR=y
 # force 32 bit build for some utilities
@@ -64,10 +64,29 @@ else
   CROSS_PREFIX=
   EXE=
 endif
-ifdef CONFIG_CLANG
+ifdef CONFIG_ANDROID
+  HOST_CC=clang
+  CC=$(CXX)
+  CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
+  CFLAGS += -x c
+  CFLAGS += -Wextra
+  CFLAGS += -nostdlib++
+  CFLAGS += -Wno-sign-compare
+  CFLAGS += -Wno-missing-field-initializers
+  CFLAGS += -Wundef -Wuninitialized
+  CFLAGS += -Wunused -Wno-unused-parameter
+  CFLAGS += -Wwrite-strings
+  CFLAGS += -Wchar-subscripts -funsigned-char
+  CFLAGS += -MMD -MF $(OBJDIR)/$(@F).d
+else ifdef CONFIG_CLANG
   HOST_CC=clang
   CC=$(CROSS_PREFIX)clang
   CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
+  ifdef CONFIG_WASM
+    HOST_CC=clang++
+    CC=$(CROSS_PREFIX)clang++
+	CFLAGS += -x c
+  endif
   CFLAGS += -Wextra
   CFLAGS += -Wno-sign-compare
   CFLAGS += -Wno-missing-field-initializers
@@ -88,6 +107,10 @@ ifdef CONFIG_CLANG
 else
   HOST_CC=gcc
   CC=$(CROSS_PREFIX)gcc
+  ifdef CONFIG_WASM
+    HOST_CC=g++
+    CC=$(CROSS_PREFIX)g++
+  endif
   CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
   CFLAGS += -Wno-array-bounds -Wno-format-truncation
   ifdef CONFIG_LTO
@@ -108,20 +131,29 @@ ifdef CONFIG_WIN32
 DEFINES+=-D__USE_MINGW_ANSI_STDIO # for standard snprintf behavior
 endif
 
+ifdef CONFIG_ANDROID
+ANDROID_C++_LIB=-lc++_static -lc++abi
+else
+ANDROID_C++_LIB=
+endif
+
 ifdef CONFIG_WASM
-DEFINES+=-DCONFIG_WASM
+WASM_DEFINES=-DCONFIG_WASM
 endif
 
 CFLAGS+=$(DEFINES)
 CFLAGS_DEBUG=$(CFLAGS) -O0
 CFLAGS_SMALL=$(CFLAGS) -Os
 CFLAGS_OPT=$(CFLAGS) -O2
+ifdef CONFIG_ANDROID
+CFLAGS_OPT=$(CFLAGS) -Os
+endif
 CFLAGS_NOLTO:=$(CFLAGS_OPT)
 LDFLAGS=-g
 ifdef CONFIG_LTO
-CFLAGS_SMALL+=-flto
-CFLAGS_OPT+=-flto
-LDFLAGS+=-flto
+CFLAGS_SMALL+=-flto=thin
+CFLAGS_OPT+=-flto=thin
+LDFLAGS+=-flto=thin
 endif
 ifdef CONFIG_PROFILE
 CFLAGS+=-p
@@ -136,10 +168,19 @@ LDEXPORT=
 else
 LDEXPORT=-rdynamic
 endif
+ifdef CONFIG_ANDROID
+ANDROID_LDFLAGS=-nostdlib++
+else
+ANDROID_LDFLAGS=
+endif
 
 PROGS=qjs$(EXE) qjsc$(EXE) run-test262
 ifneq ($(CROSS_PREFIX),)
 QJSC_CC=gcc
+QJSC=./host-qjsc
+PROGS+=$(QJSC)
+else ifdef CONFIG_ANDROID
+QJSC_CC=clang
 QJSC=./host-qjsc
 PROGS+=$(QJSC)
 else
@@ -190,21 +231,32 @@ endif
 HOST_LIBS=-lm -ldl -lpthread
 LIBS=-lm
 ifndef CONFIG_WIN32
+ifndef CONFIG_ANDROID
 LIBS+=-ldl -lpthread
+else
+LIBS+=-ldl
+endif
 endif
 LIBS+=$(EXTRA_LIBS)
+ifdef CONFIG_WASM
+ifdef CONFIG_ANDROID
+LIBS+=-lz
+else
+LIBS+=-lLLVM-18 -lz -lffi -lcurses -lzstd
+endif
+endif
 
 $(OBJDIR):
 	mkdir -p $(OBJDIR) $(OBJDIR)/examples $(OBJDIR)/tests
 
 qjs$(EXE): $(QJS_OBJS) $(QJS_WASM_ARCHIVE)
-	$(CC) $(LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS)
+	$(CC) $(LDFLAGS) $(ANDROID_LDFLAGS) $(LDEXPORT) -o $@ $^ $(LIBS) $(ANDROID_C++_LIB)
 
 qjs-debug$(EXE): $(patsubst %.o, %.debug.o, $(QJS_OBJS)) $(QJS_WASM_ARCHIVE)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+	$(CC) $(LDFLAGS) $(ANDROID_LDFLAGS) -o $@ $^ $(LIBS) $(ANDROID_C++_LIB)
 
-qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS)
-	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
+qjsc$(EXE): $(OBJDIR)/qjsc.o $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE)
+	$(CC) $(LDFLAGS) $(ANDROID_LDFLAGS) -o $@ $^ $(LIBS) $(ANDROID_C++_LIB)
 
 ifneq ($(CROSS_PREFIX),)
 
@@ -213,6 +265,12 @@ $(QJSC): $(OBJDIR)/qjsc.host.o \
 	$(HOST_CC) $(LDFLAGS) -o $@ $^ $(HOST_LIBS)
 
 endif #CROSS_PREFIX
+
+ifdef CONFIG_ANDROID
+$(QJSC): $(OBJDIR)/qjsc.host.o \
+    $(patsubst %.o, %.host.o, $(QJS_LIB_OBJS))
+	$(HOST_CC) $(LDFLAGS) -o $@ $^ $(HOST_LIBS)
+endif
 
 QJSC_DEFINES:=-DCONFIG_CC=\"$(QJSC_CC)\" -DCONFIG_PREFIX=\"$(prefix)\"
 ifdef CONFIG_LTO
@@ -239,11 +297,11 @@ else
 LTOEXT=
 endif
 
-libquickjs$(LTOEXT).a: $(QJS_LIB_OBJS)
+libquickjs$(LTOEXT).a: $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE)
 	$(AR) rcs $@ $^
 
 ifdef CONFIG_LTO
-libquickjs.a: $(patsubst %.o, %.nolto.o, $(QJS_LIB_OBJS))
+libquickjs.a: $(patsubst %.o, %.nolto.o, $(QJS_LIB_OBJS)) $(QJS_WASM_ARCHIVE)
 	$(AR) rcs $@ $^
 endif # CONFIG_LTO
 
@@ -261,40 +319,40 @@ libunicode-table.h: unicode_gen
 	./unicode_gen unicode $@
 endif
 
-run-test262: $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS)
+run-test262: $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE)
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-run-test262-debug: $(patsubst %.o, %.debug.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS))
+run-test262-debug: $(patsubst %.o, %.debug.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE))
 	$(CC) $(LDFLAGS) -o $@ $^ $(LIBS)
 
-run-test262-32: $(patsubst %.o, %.m32.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS))
+run-test262-32: $(patsubst %.o, %.m32.o, $(OBJDIR)/run-test262.o $(QJS_LIB_OBJS) $(QJS_WASM_ARCHIVE))
 	$(CC) -m32 $(LDFLAGS) -o $@ $^ $(LIBS)
 
 # object suffix order: nolto, [m32|m32s]
 
 $(OBJDIR)/%.o: %.c | $(OBJDIR)
-	$(CC) $(CFLAGS_OPT) -c -o $@ $<
+	$(CC) $(CFLAGS_OPT) $(WASM_DEFINES) -c -o $@ $<
 
 $(OBJDIR)/%.host.o: %.c | $(OBJDIR)
 	$(HOST_CC) $(CFLAGS_OPT) -c -o $@ $<
 
 $(OBJDIR)/%.pic.o: %.c | $(OBJDIR)
-	$(CC) $(CFLAGS_OPT) -fPIC -DJS_SHARED_LIBRARY -c -o $@ $<
+	$(CC) $(CFLAGS_OPT) $(WASM_DEFINES) -fPIC -DJS_SHARED_LIBRARY -c -o $@ $<
 
 $(OBJDIR)/%.nolto.o: %.c | $(OBJDIR)
-	$(CC) $(CFLAGS_NOLTO) -c -o $@ $<
+	$(CC) $(CFLAGS_NOLTO) $(WASM_DEFINES) -c -o $@ $<
 
 $(OBJDIR)/%.m32.o: %.c | $(OBJDIR)
-	$(CC) -m32 $(CFLAGS_OPT) -c -o $@ $<
+	$(CC) -m32 $(CFLAGS_OPT) $(WASM_DEFINES) -c -o $@ $<
 
 $(OBJDIR)/%.m32s.o: %.c | $(OBJDIR)
-	$(CC) -m32 $(CFLAGS_SMALL) -c -o $@ $<
+	$(CC) -m32 $(CFLAGS_SMALL) $(WASM_DEFINES) -c -o $@ $<
 
 $(OBJDIR)/%.debug.o: %.c | $(OBJDIR)
-	$(CC) $(CFLAGS_DEBUG) -c -o $@ $<
+	$(CC) $(CFLAGS_DEBUG) $(WASM_DEFINES) -c -o $@ $<
 
 $(OBJDIR)/%.check.o: %.c | $(OBJDIR)
-	$(CC) $(CFLAGS) -DCONFIG_CHECK_JSVALUE -c -o $@ $<
+	$(CC) $(CFLAGS) $(WASM_DEFINES) -DCONFIG_CHECK_JSVALUE -c -o $@ $<
 
 regexp_test: libregexp.c libunicode.c cutils.c
 	$(CC) $(LDFLAGS) $(CFLAGS) -DTEST -o $@ libregexp.c libunicode.c cutils.c $(LIBS)

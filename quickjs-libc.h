@@ -35,9 +35,6 @@ extern "C" {
 
 JSModuleDef *js_init_module_std(JSContext *ctx, const char *module_name);
 JSModuleDef *js_init_module_os(JSContext *ctx, const char *module_name);
-void JS_AddIntrinsicWebAssembly(JSContext *ctx);
-void JS_DropRustRuntime(JSRuntime *rt);
-JS_BOOL JS_RunRustAsyncTask(JSRuntime *rt);
 void js_std_add_helpers(JSContext *ctx, int argc, char **argv);
 void js_std_loop(JSContext *ctx);
 void js_std_init_handlers(JSRuntime *rt);
@@ -54,6 +51,30 @@ void js_std_promise_rejection_tracker(JSContext *ctx, JSValueConst promise,
                                       JSValueConst reason,
                                       JS_BOOL is_handled, void *opaque);
 void js_std_set_worker_new_context_func(JSContext *(*func)(JSRuntime *rt));
+
+#ifdef CONFIG_WASM
+typedef struct {
+    int ref_count;
+    pthread_mutex_t mutex;
+    int read_fd;
+    int write_fd;
+} JSRustMessagePipe;
+void JS_DropRustRuntime(JSRuntime *rt);
+int JS_RunRustAsyncTask(JSRuntime *rt);
+JSContext *JS_NewCustomContext(JSRuntime *rt);
+void JS_InitOpaqueInRust(JSRuntime *rt);
+void JS_AddIntrinsicWebAssembly(JSContext *ctx);
+void js_std_loop_test(JSContext *ctx);
+JSRustMessagePipe *JS_CreateRustMessagePipe(JSRuntime *rt);
+void JS_ReadRustMessagePipe(JSRustMessagePipe *ps);
+void JS_WriteRustMessagePipe(JSRustMessagePipe *ps);
+void JS_SelectRustMessagePipe(JSRustMessagePipe *ps);
+void JS_FreeRustMessagePipe(JSRustMessagePipe *ps);
+void JS_RustLockMutex(JSRustMessagePipe *ps);
+void JS_RustUnlockMutex(JSRustMessagePipe *ps);
+JSRustMessagePipe *JS_DupRustMessagePipe(JSRustMessagePipe *ps);
+JSRustMessagePipe *JS_GetRustMessagePipe(JSRuntime *rt);
+#endif
                                         
 #ifdef __cplusplus
 } /* extern "C" { */

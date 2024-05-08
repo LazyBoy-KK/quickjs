@@ -47,6 +47,10 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
+#ifdef CONFIG_TEST
+#include <sched.h>
+#endif
+
 #if defined(__APPLE__)
 typedef sig_t sighandler_t;
 #if !defined(environ)
@@ -134,8 +138,14 @@ typedef struct JSThreadState {
     JSWorkerMessagePipe *recv_pipe, *send_pipe;
 #ifdef CONFIG_WASM
     void* rust_opaque;
+    JSRustMessagePipe *rust_pipes;
 #endif
 } JSThreadState;
+
+static int atomic_add_int(int *ptr, int v)
+{
+    return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v) + v;
+}
 
 #ifdef CONFIG_WASM
 void* JS_GetRustRuntimeOpaque(JSRuntime *rt)
@@ -150,6 +160,130 @@ void JS_SetRustRuntimeOpaque(JSRuntime *rt, void *opaque)
     ts->rust_opaque = opaque;
 }
 
+static BOOL js_new_rust_message_pipe(JSRustMessagePipe *ps)
+{
+    int pipe_fds[2];
+
+    if (pipe(pipe_fds) < 0)
+        goto fail;
+
+    ps->read_fd = pipe_fds[0];
+    ps->write_fd = pipe_fds[1];
+    pthread_mutex_init(&ps->mutex, NULL);
+    ps->ref_count = 1;
+
+    return TRUE;
+
+fail:
+    close(ps->read_fd);
+    close(ps->write_fd);
+    pthread_mutex_destroy(&ps->mutex);
+
+    return FALSE;
+}
+
+JSRustMessagePipe *JS_DupRustMessagePipe(JSRustMessagePipe *ps)
+{
+    atomic_add_int(&ps->ref_count, 1);
+    
+    return ps;
+}
+
+void JS_FreeRustMessagePipe(JSRustMessagePipe *ps)
+{
+    int ref_count;
+
+    if (!ps)
+        return;
+
+    ref_count = atomic_add_int(&ps->ref_count, -1);
+    assert(ref_count >= 0);
+
+    if (ref_count == 0) {
+        close(ps->read_fd);
+        close(ps->write_fd);
+        pthread_mutex_destroy(&ps->mutex);
+        free(ps);
+    }
+}
+
+JSRustMessagePipe *JS_CreateRustMessagePipe(JSRuntime *rt)
+{
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+
+    ts->rust_pipes = malloc(sizeof(JSRustMessagePipe));
+    if (ts->rust_pipes == NULL)
+        goto fail;
+    
+    if (!js_new_rust_message_pipe(ts->rust_pipes))
+        goto fail;
+
+    return JS_DupRustMessagePipe(ts->rust_pipes);
+
+fail:
+    free(ts->rust_pipes);
+    ts->rust_pipes = NULL;
+    return NULL;
+}
+
+void JS_ReadRustMessagePipe(JSRustMessagePipe *ps)
+{
+    uint8_t buf[16];
+    int ret;
+
+    int read_fd = ps->read_fd;
+
+    for(;;) {
+        ret = read(read_fd, buf, sizeof(buf));
+        if (ret >= 0)
+            break;
+        if (errno != EAGAIN && errno != EINTR)
+            break;
+    }
+}
+
+void JS_WriteRustMessagePipe(JSRustMessagePipe *ps)
+{
+    int write_fd = ps->write_fd;
+    uint8_t ch = '\0';
+    int ret;
+
+    for(;;) {
+        ret = write(write_fd, &ch, 1);
+        if (ret == 1) {
+            break;
+        }
+        if (ret < 0 && (errno != EAGAIN || errno != EINTR))
+            break;
+    }
+}
+
+JSRustMessagePipe *JS_GetRustMessagePipe(JSRuntime *rt)
+{
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+    return ts->rust_pipes;
+}
+
+// Only select read fd
+void JS_SelectRustMessagePipe(JSRustMessagePipe *ps)
+{
+    int read_fd = ps->read_fd;
+    fd_set rfds;
+
+    FD_ZERO(&rfds);
+    FD_SET(read_fd, &rfds);
+    select(read_fd + 1, &rfds, NULL, NULL, NULL);
+}
+
+void JS_RustLockMutex(JSRustMessagePipe *ps)
+{
+    pthread_mutex_lock(&ps->mutex);
+}
+
+void JS_RustUnlockMutex(JSRustMessagePipe *ps)
+{
+    pthread_mutex_unlock(&ps->mutex);
+}
 #endif
 
 static uint64_t os_pending_signals;
@@ -2228,7 +2362,9 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
         /* 'func' might be destroyed when calling itself (if it frees the
            handler), so must take extra care */
         func = JS_DupValue(ctx, port->on_message_func);
+
         retval = JS_Call(ctx, func, JS_UNDEFINED, 1, (JSValueConst *)&obj);
+
         JS_FreeValue(ctx, obj);
         JS_FreeValue(ctx, func);
         if (JS_IsException(retval)) {
@@ -2249,6 +2385,12 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
                                  JSWorkerMessageHandler *port)
 {
     return 0;
+}
+#endif
+
+#ifdef CONFIG_WASM
+static BOOL rust_pipes_empty(JSThreadState *ts) {
+    return ts->rust_pipes == NULL;
 }
 #endif
 
@@ -2280,8 +2422,152 @@ static int js_os_poll(JSContext *ctx)
         }
     }
 
+#ifdef CONFIG_WASM
+    if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
+        list_empty(&ts->port_list) && rust_pipes_empty(ts))
+#else
     if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
         list_empty(&ts->port_list))
+#endif
+        return -1; /* no more events */
+    
+
+    if (!list_empty(&ts->os_timers)) {
+        cur_time = get_time_ms();
+        min_delay = 10000;
+        list_for_each(el, &ts->os_timers) {
+            JSOSTimer *th = list_entry(el, JSOSTimer, link);
+            delay = th->timeout - cur_time;
+            if (delay <= 0) {
+                JSValue func;
+                /* the timer expired */
+                func = th->func;
+                th->func = JS_UNDEFINED;
+                unlink_timer(rt, th);
+                if (!th->has_object)
+                    free_timer(rt, th);
+                call_handler(ctx, func);
+                JS_FreeValue(ctx, func);
+                return 0;
+            } else if (delay < min_delay) {
+                min_delay = delay;
+            }
+        }
+        tv.tv_sec = min_delay / 1000;
+        tv.tv_usec = (min_delay % 1000) * 1000;
+        tvp = &tv;
+    } else {
+        tvp = NULL;
+    }
+    
+    FD_ZERO(&rfds);
+    FD_ZERO(&wfds);
+    fd_max = -1;
+    list_for_each(el, &ts->os_rw_handlers) {
+        rh = list_entry(el, JSOSRWHandler, link);
+        fd_max = max_int(fd_max, rh->fd);
+        if (!JS_IsNull(rh->rw_func[0]))
+            FD_SET(rh->fd, &rfds);
+        if (!JS_IsNull(rh->rw_func[1]))
+            FD_SET(rh->fd, &wfds);
+    }
+
+    list_for_each(el, &ts->port_list) {
+        JSWorkerMessageHandler *port = list_entry(el, JSWorkerMessageHandler, link);
+        if (!JS_IsNull(port->on_message_func)) {
+            JSWorkerMessagePipe *ps = port->recv_pipe;
+            fd_max = max_int(fd_max, ps->read_fd);
+            FD_SET(ps->read_fd, &rfds);
+        }
+    }
+
+#ifdef CONFIG_WASM
+    if (!rust_pipes_empty(ts)) {
+        int read_fd = ts->rust_pipes->read_fd;
+        fd_max = max_int(fd_max, read_fd);
+        FD_SET(read_fd, &rfds);
+    }
+#endif
+
+    ret = select(fd_max + 1, &rfds, &wfds, NULL, tvp);
+    if (ret > 0) {
+        list_for_each(el, &ts->os_rw_handlers) {
+            rh = list_entry(el, JSOSRWHandler, link);
+            if (!JS_IsNull(rh->rw_func[0]) &&
+                FD_ISSET(rh->fd, &rfds)) {
+                call_handler(ctx, rh->rw_func[0]);
+                /* must stop because the list may have been modified */
+                goto done;
+            }
+            if (!JS_IsNull(rh->rw_func[1]) &&
+                FD_ISSET(rh->fd, &wfds)) {
+                call_handler(ctx, rh->rw_func[1]);
+                /* must stop because the list may have been modified */
+                goto done;
+            }
+        }
+
+        list_for_each(el, &ts->port_list) {
+            JSWorkerMessageHandler *port = list_entry(el, JSWorkerMessageHandler, link);
+            if (!JS_IsNull(port->on_message_func)) {
+                JSWorkerMessagePipe *ps = port->recv_pipe;
+                if (FD_ISSET(ps->read_fd, &rfds)) {
+                    if (handle_posted_message(rt, ctx, port)) {
+                        goto done;
+                    }
+                }
+            }
+        }
+
+#ifdef CONFIG_WASM
+        if (!rust_pipes_empty(ts)) {
+            int read_fd = ts->rust_pipes->read_fd;
+            if (FD_ISSET(read_fd, &rfds)){
+                if (JS_RunRustAsyncTask(rt)) {
+                    JS_FreeRustMessagePipe(ts->rust_pipes);
+                    ts->rust_pipes = NULL;
+                    goto done;
+                }
+            }
+        }
+#endif
+    }
+    done:
+    return 0;
+}
+#endif /* !_WIN32 */
+
+#ifdef CONFIG_WASM
+static int js_os_poll_test(JSContext *ctx)
+{
+    JSRuntime *rt = JS_GetRuntime(ctx);
+    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
+    int ret, fd_max, min_delay;
+    int64_t cur_time, delay;
+    fd_set rfds, wfds;
+    JSOSRWHandler *rh;
+    struct list_head *el;
+    struct timeval tv, *tvp;
+
+    /* only check signals in the main thread */
+    if (!ts->recv_pipe &&
+        unlikely(os_pending_signals != 0)) {
+        JSOSSignalHandler *sh;
+        uint64_t mask;
+        
+        list_for_each(el, &ts->os_signal_handlers) {
+            sh = list_entry(el, JSOSSignalHandler, link);
+            mask = (uint64_t)1 << sh->sig_num;
+            if (os_pending_signals & mask) {
+                os_pending_signals &= ~mask;
+                call_handler(ctx, sh->func);
+                return 0;
+            }
+        }
+    }
+
+    if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
+        list_empty(&ts->port_list) && rust_pipes_empty(ts))
         return -1; /* no more events */
     
     if (!list_empty(&ts->os_timers)) {
@@ -2333,6 +2619,12 @@ static int js_os_poll(JSContext *ctx)
         }
     }
 
+    if (!rust_pipes_empty(ts)) {
+        int read_fd = ts->rust_pipes->read_fd;
+        fd_max = max_int(fd_max, read_fd);
+        FD_SET(read_fd, &rfds);
+    }
+
     ret = select(fd_max + 1, &rfds, &wfds, NULL, tvp);
     if (ret > 0) {
         list_for_each(el, &ts->os_rw_handlers) {
@@ -2357,7 +2649,16 @@ static int js_os_poll(JSContext *ctx)
                 JSWorkerMessagePipe *ps = port->recv_pipe;
                 if (FD_ISSET(ps->read_fd, &rfds)) {
                     if (handle_posted_message(rt, ctx, port))
-                        goto done;
+                        return -1;
+                }
+            }
+        }
+
+        if (!rust_pipes_empty(ts)) {
+            int read_fd = ts->rust_pipes->read_fd;
+            if (FD_ISSET(read_fd, &rfds)) {
+                if (JS_RunRustAsyncTask(rt)) {
+                    return -1;
                 }
             }
         }
@@ -2365,7 +2666,7 @@ static int js_os_poll(JSContext *ctx)
     done:
     return 0;
 }
-#endif /* !_WIN32 */
+#endif
 
 static JSValue make_obj_error(JSContext *ctx,
                               JSValue obj,
@@ -3175,11 +3476,6 @@ typedef struct {
 static JSClassID js_worker_class_id;
 static JSContext *(*js_worker_new_context_func)(JSRuntime *rt);
 
-static int atomic_add_int(int *ptr, int v)
-{
-    return atomic_fetch_add((_Atomic(uint32_t) *)ptr, v) + v;
-}
-
 #ifdef CONFIG_WASM
 /* shared array buffer allocator */
 static void *js_sab_alloc(void *opaque, size_t size)
@@ -3375,6 +3671,12 @@ static void *worker_func(void *opaque)
     JSRuntime *rt;
     JSThreadState *ts;
     JSContext *ctx;
+
+#ifdef CONFIG_TEST
+    struct sched_param param;
+    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
+    sched_setscheduler(0, SCHED_FIFO, &param);
+#endif
     
     rt = JS_NewRuntime();
     if (rt == NULL) {
@@ -3543,7 +3845,7 @@ static JSValue js_worker_postMessage(JSContext *ctx, JSValueConst this_val,
 #endif
     if (!worker)
         return JS_EXCEPTION;
-    
+
 #ifdef CONFIG_WASM
     data = JS_WriteObject3(ctx, &data_len, argv[0],
                            JS_WRITE_OBJ_SAB | JS_WRITE_OBJ_REFERENCE,
@@ -3625,7 +3927,6 @@ static JSValue js_worker_postMessage(JSContext *ctx, JSValueConst this_val,
     js_free(ctx, data);
     js_free(ctx, sab_tab);
     return JS_EXCEPTION;
-    
 }
 
 static JSValue js_worker_set_onmessage(JSContext *ctx, JSValueConst this_val,
@@ -3921,12 +4222,19 @@ void js_std_init_handlers(JSRuntime *rt)
         JS_SetSharedArrayBufferFunctions(rt, &sf);
     }
 #endif
+#ifdef CONFIG_WASM
+    JS_InitOpaqueInRust(rt);
+#endif
 }
 
 void js_std_free_handlers(JSRuntime *rt)
 {
     JSThreadState *ts = JS_GetRuntimeOpaque(rt);
     struct list_head *el, *el1;
+
+#ifdef CONFIG_WASM
+    JS_DropRustRuntime(rt);
+#endif
 
     list_for_each_safe(el, el1, &ts->os_rw_handlers) {
         JSOSRWHandler *rh = list_entry(el, JSOSRWHandler, link);
@@ -4008,19 +4316,11 @@ void js_std_loop(JSContext *ctx)
 {
     JSContext *ctx1;
     int err;
-
     for(;;) {
         /* execute the pending jobs */
         for(;;) {
-#ifdef CONFIG_WASM
-        BOOL complete = JS_RunRustAsyncTask(JS_GetRuntime(ctx));
-#endif
             err = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
-#ifndef CONFIG_WASM
             if (err <= 0) {
-#else
-            if (err <= 0 && complete) {
-#endif
                 if (err < 0) {
                     js_std_dump_error(ctx1);
                 }
@@ -4028,8 +4328,13 @@ void js_std_loop(JSContext *ctx)
             }
         }
 
+#ifdef CONFIG_WASM
+        if (js_os_poll(ctx))
+            break;
+#else
         if (!os_poll_func || os_poll_func(ctx))
             break;
+#endif
     }
 }
 
@@ -4061,3 +4366,47 @@ void js_std_eval_binary(JSContext *ctx, const uint8_t *buf, size_t buf_len,
         JS_FreeValue(ctx, val);
     }
 }
+
+#ifdef CONFIG_WASM
+JSContext *JS_NewCustomContext(JSRuntime *rt)
+{
+    JSContext *ctx;
+    ctx = JS_NewContext(rt);
+    if (!ctx)
+        return NULL;
+#ifdef CONFIG_BIGNUM
+    JS_AddIntrinsicBigFloat(ctx);
+    JS_AddIntrinsicBigDecimal(ctx);
+    JS_AddIntrinsicOperators(ctx);
+    JS_EnableBignumExt(ctx, TRUE);
+#endif
+    /* system modules */
+    js_init_module_std(ctx, "std");
+    js_init_module_os(ctx, "os");
+    JS_AddIntrinsicWebAssembly(ctx);
+    return ctx;
+}
+
+void js_std_loop_test(JSContext *ctx)
+{
+    JSContext *ctx1;
+    int err;
+
+    for(;;) {
+        int need_break = js_os_poll_test(ctx);
+        /* execute the pending jobs */
+        for(;;) {
+            err = JS_ExecutePendingJob(JS_GetRuntime(ctx), &ctx1);
+            if (err <= 0) {
+                if (err < 0) {
+                    js_std_dump_error(ctx1);
+                }
+                break;
+            }
+        }
+
+        if (need_break)
+            break;
+    }
+}
+#endif

@@ -102,6 +102,7 @@ static int eval_file(JSContext *ctx, const char *filename, int module)
     return ret;
 }
 
+#ifndef CONFIG_WASM
 /* also used to initialize the worker context */
 static JSContext *JS_NewCustomContext(JSRuntime *rt)
 {
@@ -120,9 +121,9 @@ static JSContext *JS_NewCustomContext(JSRuntime *rt)
     /* system modules */
     js_init_module_std(ctx, "std");
     js_init_module_os(ctx, "os");
-    JS_AddIntrinsicWebAssembly(ctx);
     return ctx;
 }
+#endif
 
 #if defined(__APPLE__)
 #define MALLOC_OVERHEAD  0
@@ -307,6 +308,17 @@ void help(void)
 
 int main(int argc, char **argv)
 {
+    // pid_t pid = getpid();
+    // pid_t perf = fork();
+    // if (perf == 0) {
+    //     char pid_str[20];
+    //     sprintf(pid_str, "%d", pid);
+    //     char *args[] = {"record", "-e", "cycles", "--call-graph", "-p", pid_str, NULL};
+    //     execv("/system/bin/simpleperf", args);
+    //     perror("execv failed");
+    // }
+    // sleep(1);
+
     JSRuntime *rt;
     JSContext *ctx;
     struct trace_malloc_data trace_data = { NULL };
@@ -534,7 +546,6 @@ int main(int argc, char **argv)
         JS_ComputeMemoryUsage(rt, &stats);
         JS_DumpMemoryUsage(stdout, &stats, rt);
     }
-    JS_DropRustRuntime(rt);
     js_std_free_handlers(rt);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
@@ -565,7 +576,6 @@ int main(int argc, char **argv)
     }
     return 0;
  fail:
-    JS_DropRustRuntime(rt);
     js_std_free_handlers(rt);
     JS_FreeContext(ctx);
     JS_FreeRuntime(rt);
