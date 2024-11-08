@@ -325,6 +325,9 @@ typedef struct JSMallocState {
     size_t malloc_count;
     size_t malloc_size;
     size_t malloc_limit;
+#ifdef CONFIG_CUSTOM_ALLOCATOR
+	size_t gc_threshold;
+#endif
     void *opaque; /* user opaque */
 } JSMallocState;
 
@@ -333,6 +336,11 @@ typedef struct JSMallocFunctions {
     void (*js_free)(JSMallocState *s, void *ptr);
     void *(*js_realloc)(JSMallocState *s, void *ptr, size_t size);
     size_t (*js_malloc_usable_size)(const void *ptr);
+#ifdef CONFIG_CUSTOM_ALLOCATOR
+	int (*js_force_gc)(JSMallocState *s, size_t size);
+	void (*js_set_gc_threshold)(JSMallocState *s, size_t size);
+	void (*js_enlarge_gc_threshold)(JSMallocState *s);
+#endif
 } JSMallocFunctions;
 
 typedef struct JSGCObjectHeader JSGCObjectHeader;
@@ -721,10 +729,6 @@ JSValue JS_NewObjectClass(JSContext *ctx, int class_id);
 JSValue JS_NewObjectProto(JSContext *ctx, JSValueConst proto);
 JSValue JS_NewObject(JSContext *ctx);
 
-#ifdef CONFIG_WASM
-JS_BOOL JS_IsAsyncFunction(JSContext *ctx, JSValueConst val);
-#endif
-
 JS_BOOL JS_IsFunction(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_IsConstructor(JSContext* ctx, JSValueConst val);
 JS_BOOL JS_SetConstructorBit(JSContext *ctx, JSValueConst func_obj, JS_BOOL val);
@@ -836,6 +840,7 @@ JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
                                size_t *pbytes_per_element);
 
 #ifdef CONFIG_WASM
+JS_BOOL JS_IsAsyncFunction(JSContext *ctx, JSValueConst val);
 typedef void JSFreeCustomSharedArrayBufferDataFunc(void *opaque);
 typedef void *JSDupCustomSharedArrayBufferDataFunc(void *opaque);
 #endif /* CONFIG_WASM */
@@ -1106,6 +1111,10 @@ enum {
 #ifdef CONFIG_WASM
 void* JS_GetRustRuntimeOpaque(JSRuntime *rt);
 void JS_SetRustRuntimeOpaque(JSRuntime *rt, void *opaque);
+JSRuntime *JS_RustNewRuntime();
+void JS_FreeMallocOpaque(void *opaque);
+void JS_IncMallocSize(JSRuntime *rt, size_t size);
+void JS_DecMallocSize(JSRuntime *rt, size_t size);
 #endif
 
 enum {
@@ -1175,12 +1184,9 @@ enum {
     JS_CLASS_INIT_COUNT, /* last entry for predefined classes */
 };
 
-#ifdef CONFIG_WASM
-void *JS_SharedMemoryAlloc(size_t size);
-void JS_SharedMemoryFree(void *ptr);
-void JS_SharedMemoryDup(void *ptr);
+#ifdef CONFIG_BENCHMARK
+void JS_DisplayMaxMallocSize(JSRuntime *rt);
 #endif
-void JS_DebugBacktrace();
 
 #ifdef __cplusplus
 } /* extern "C" { */

@@ -67,7 +67,7 @@ endif
 ifdef CONFIG_ANDROID
   HOST_CC=clang
   CC=$(CXX)
-  CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
+  CFLAGS=-Wall -MMD -MF $(OBJDIR)/$(@F).d
   CFLAGS += -x c
   CFLAGS += -Wextra
   CFLAGS += -nostdlib++
@@ -82,11 +82,11 @@ else ifdef CONFIG_CLANG
   HOST_CC=clang
   CC=$(CROSS_PREFIX)clang
   CFLAGS=-g -Wall -MMD -MF $(OBJDIR)/$(@F).d
-  ifdef CONFIG_WASM
-    HOST_CC=clang++
-    CC=$(CROSS_PREFIX)clang++
-	CFLAGS += -x c
-  endif
+#   ifdef CONFIG_WASM
+#     HOST_CC=clang++
+#     CC=$(CROSS_PREFIX)clang++
+# 	CFLAGS += -x c
+#   endif
   CFLAGS += -Wextra
   CFLAGS += -Wno-sign-compare
   CFLAGS += -Wno-missing-field-initializers
@@ -131,6 +131,10 @@ ifdef CONFIG_WIN32
 DEFINES+=-D__USE_MINGW_ANSI_STDIO # for standard snprintf behavior
 endif
 
+ifdef CONFIG_BENCHMARK
+DEFINES+=-DCONFIG_BENCHMARK
+endif
+
 ifdef CONFIG_ANDROID
 ANDROID_C++_LIB=-lc++_static -lc++abi
 else
@@ -139,6 +143,8 @@ endif
 
 ifdef CONFIG_WASM
 WASM_DEFINES=-DCONFIG_WASM
+else
+WASM_DEFINES=
 endif
 
 CFLAGS+=$(DEFINES)
@@ -146,7 +152,7 @@ CFLAGS_DEBUG=$(CFLAGS) -O0
 CFLAGS_SMALL=$(CFLAGS) -Os
 CFLAGS_OPT=$(CFLAGS) -O2
 ifdef CONFIG_ANDROID
-CFLAGS_OPT=$(CFLAGS) -Os
+CFLAGS_OPT=$(CFLAGS) -Oz
 endif
 CFLAGS_NOLTO:=$(CFLAGS_OPT)
 LDFLAGS=-g
@@ -181,7 +187,7 @@ QJSC=./host-qjsc
 PROGS+=$(QJSC)
 else ifdef CONFIG_ANDROID
 QJSC_CC=clang
-QJSC=./host-qjsc
+QJSC=./host-qjsc$(EXE)
 PROGS+=$(QJSC)
 else
 QJSC_CC=$(CC)
@@ -239,11 +245,12 @@ endif
 endif
 LIBS+=$(EXTRA_LIBS)
 ifdef CONFIG_WASM
-ifdef CONFIG_ANDROID
+# ifdef CONFIG_ANDROID
+# LIBS+=-lz
+# else
+# LIBS+=-lz -lffi -lcurses -lzstd
+# endif
 LIBS+=-lz
-else
-LIBS+=-lLLVM-18 -lz -lffi -lcurses -lzstd
-endif
 endif
 
 $(OBJDIR):

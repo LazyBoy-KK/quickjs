@@ -256,7 +256,9 @@ struct JSRuntime {
     struct list_head gc_zero_ref_count_list; 
     struct list_head tmp_obj_list; /* used during GC */
     JSGCPhaseEnum gc_phase : 8;
+#ifndef CONFIG_CUSTOM_ALLOCATOR
     size_t malloc_gc_threshold;
+#endif
 #ifdef DUMP_LEAKS
     struct list_head string_list; /* list of JSString.link */
 #endif
@@ -1248,8 +1250,12 @@ static void js_trigger_gc(JSRuntime *rt, size_t size)
 #ifdef FORCE_GC_AT_MALLOC
     force_gc = TRUE;
 #else
+#ifndef CONFIG_CUSTOM_ALLOCATOR
     force_gc = ((rt->malloc_state.malloc_size + size) >
                 rt->malloc_gc_threshold);
+#else
+	force_gc = rt->mf.js_force_gc(&rt->malloc_state, size);
+#endif
 #endif
     if (force_gc) {
 #ifdef DUMP_GC
@@ -1257,8 +1263,12 @@ static void js_trigger_gc(JSRuntime *rt, size_t size)
                (uint64_t)rt->malloc_state.malloc_size);
 #endif
         JS_RunGC(rt);
+#ifndef CONFIG_CUSTOM_ALLOCATOR
         rt->malloc_gc_threshold = rt->malloc_state.malloc_size +
             (rt->malloc_state.malloc_size >> 1);
+#else
+		rt->mf.js_enlarge_gc_threshold(&rt->malloc_state);
+#endif
     }
 }
 
@@ -1598,7 +1608,11 @@ JSRuntime *JS_NewRuntime2(const JSMallocFunctions *mf, void *opaque)
         rt->mf.js_malloc_usable_size = js_malloc_usable_size_unknown;
     }
     rt->malloc_state = ms;
+#ifndef CONFIG_CUSTOM_ALLOCATOR
     rt->malloc_gc_threshold = 256 * 1024;
+#else
+	rt->malloc_state.gc_threshold = 256 * 1024;
+#endif
 
 #ifdef CONFIG_BIGNUM
     bf_context_init(&rt->bf_ctx, js_bf_realloc, rt);
@@ -1673,6 +1687,27 @@ static inline size_t js_def_malloc_usable_size(void *ptr)
 #endif
 }
 
+#ifdef CONFIG_CUSTOM_ALLOCATOR
+static int js_def_force_gc(JSMallocState *s, size_t size)
+{
+	return s->malloc_size + size > s->gc_threshold;
+}
+
+static void js_def_set_gc_threshold(JSMallocState *s, size_t size)
+{
+	s->gc_threshold = size;
+}
+
+static void js_def_enlarge_gc_threshold(JSMallocState *s)
+{
+	s->gc_threshold = s->malloc_size + (s->malloc_size >> 1);
+}
+#endif
+
+#ifdef CONFIG_BENCHMARK
+size_t max_mem = 0;
+#endif
+
 static void *js_def_malloc(JSMallocState *s, size_t size)
 {
     void *ptr;
@@ -1689,6 +1724,11 @@ static void *js_def_malloc(JSMallocState *s, size_t size)
 
     s->malloc_count++;
     s->malloc_size += js_def_malloc_usable_size(ptr) + MALLOC_OVERHEAD;
+#ifdef CONFIG_BENCHMARK
+	if (max_mem < s->malloc_size) {
+		max_mem = s->malloc_size;
+	}
+#endif
     return ptr;
 }
 
@@ -1726,6 +1766,11 @@ static void *js_def_realloc(JSMallocState *s, void *ptr, size_t size)
         return NULL;
 
     s->malloc_size += js_def_malloc_usable_size(ptr) - old_size;
+#ifdef CONFIG_BENCHMARK
+	if (max_mem < s->malloc_size) {
+		max_mem = s->malloc_size;
+	}
+#endif
     return ptr;
 }
 
@@ -1745,6 +1790,11 @@ static const JSMallocFunctions def_malloc_funcs = {
     /* change this to `NULL,` if compilation fails */
     malloc_usable_size,
 #endif
+#ifdef CONFIG_CUSTOM_ALLOCATOR
+	js_def_force_gc,
+	js_def_set_gc_threshold,
+	js_def_enlarge_gc_threshold,
+#endif
 };
 
 JSRuntime *JS_NewRuntime(void)
@@ -1760,7 +1810,11 @@ void JS_SetMemoryLimit(JSRuntime *rt, size_t limit)
 /* use -1 to disable automatic GC */
 void JS_SetGCThreshold(JSRuntime *rt, size_t gc_threshold)
 {
+#ifndef CONFIG_CUSTOM_ALLOCATOR
     rt->malloc_gc_threshold = gc_threshold;
+#else
+	rt->mf.js_set_gc_threshold(&rt->malloc_state, gc_threshold);
+#endif
 }
 
 #define malloc(s) malloc_is_forbidden(s)
@@ -2089,8 +2143,15 @@ void JS_FreeRuntime(JSRuntime *rt)
     }
 #endif
 
+#ifdef CONFIG_BENCHMARK
+	printf("memory used:%ld\n", max_mem);
+#endif
+
     {
         JSMallocState ms = rt->malloc_state;
+#ifdef CONFIG_WASM
+		JS_FreeMallocOpaque(ms.opaque);
+#endif
         rt->mf.js_free(&ms, rt);
     }
 }
@@ -27400,7 +27461,6 @@ static JSModuleDef *js_host_resolve_imported_module(JSContext *ctx,
         js_free(ctx, cname);
         return NULL;
     }
-
     m = rt->module_loader_func(ctx, cname, rt->module_loader_opaque);
     js_free(ctx, cname);
     return m;
@@ -46719,22 +46779,30 @@ static JSValue js_promise_constructor(JSContext *ctx, JSValueConst new_target,
     int i;
 
     executor = argv[0];
-    if (check_function(ctx, executor))
+    if (check_function(ctx, executor)) {
+		printf("check function failed in js promise ctor\n");
         return JS_EXCEPTION;
+	}
     obj = js_create_from_ctor(ctx, new_target, JS_CLASS_PROMISE);
-    if (JS_IsException(obj))
+    if (JS_IsException(obj)) {
+		printf("create obj failed in js promise ctor\n");
         return JS_EXCEPTION;
+	}
     s = js_mallocz(ctx, sizeof(*s));
-    if (!s)
+    if (!s) {
+		printf("mallocz failed in js promise ctor\n");
         goto fail;
+	}
     s->promise_state = JS_PROMISE_PENDING;
     s->is_handled = FALSE;
     for(i = 0; i < 2; i++)
         init_list_head(&s->promise_reactions[i]);
     s->promise_result = JS_UNDEFINED;
     JS_SetOpaque(obj, s);
-    if (js_create_resolving_functions(ctx, args, obj))
+    if (js_create_resolving_functions(ctx, args, obj)) {
+		printf("create resolving function failed in js promise ctor\n");
         goto fail;
+	}
     ret = JS_Call(ctx, executor, JS_UNDEFINED, 2, (JSValueConst *)args);
     if (JS_IsException(ret)) {
         JSValue ret2, error;
@@ -54247,3 +54315,24 @@ void JS_AddIntrinsicTypedArrays(JSContext *ctx)
     JS_AddIntrinsicAtomics(ctx);
 #endif
 }
+
+#ifdef CONFIG_WASM
+void JS_IncMallocSize(JSRuntime *rt, size_t size) {
+	rt->malloc_state.malloc_size += size;
+#ifdef CONFIG_BENCHMARK
+	if (max_mem < rt->malloc_state.malloc_size) {
+		max_mem = rt->malloc_state.malloc_size;
+	}
+#endif
+}
+
+void JS_DecMallocSize(JSRuntime *rt, size_t size) {
+	rt->malloc_state.malloc_size -= size;
+}
+#endif
+
+#ifdef CONFIG_BENCHMARK
+void JS_DisplayMaxMallocSize(JSRuntime *rt) {
+	printf("Display max malloc size:%ld\n", rt->malloc_state.malloc_size);
+}
+#endif

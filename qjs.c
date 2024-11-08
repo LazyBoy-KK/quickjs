@@ -308,17 +308,6 @@ void help(void)
 
 int main(int argc, char **argv)
 {
-    // pid_t pid = getpid();
-    // pid_t perf = fork();
-    // if (perf == 0) {
-    //     char pid_str[20];
-    //     sprintf(pid_str, "%d", pid);
-    //     char *args[] = {"record", "-e", "cycles", "--call-graph", "-p", pid_str, NULL};
-    //     execv("/system/bin/simpleperf", args);
-    //     perror("execv failed");
-    // }
-    // sleep(1);
-
     JSRuntime *rt;
     JSContext *ctx;
     struct trace_malloc_data trace_data = { NULL };
@@ -486,6 +475,9 @@ int main(int argc, char **argv)
         JS_SetMaxStackSize(rt, stack_size);
     js_std_set_worker_new_context_func(JS_NewCustomContext);
     js_std_init_handlers(rt);
+#ifdef CONFIG_WASM
+    JS_InitOpaqueInRust(rt, FALSE);
+#endif
     ctx = JS_NewCustomContext(rt);
     if (!ctx) {
         fprintf(stderr, "qjs: cannot allocate JS context\n");

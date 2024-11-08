@@ -47,10 +47,6 @@
 #include <sys/ioctl.h>
 #include <sys/wait.h>
 
-#ifdef CONFIG_TEST
-#include <sched.h>
-#endif
-
 #if defined(__APPLE__)
 typedef sig_t sighandler_t;
 #if !defined(environ)
@@ -3672,18 +3668,20 @@ static void *worker_func(void *opaque)
     JSThreadState *ts;
     JSContext *ctx;
 
-#ifdef CONFIG_TEST
-    struct sched_param param;
-    param.sched_priority = sched_get_priority_max(SCHED_FIFO);
-    sched_setscheduler(0, SCHED_FIFO, &param);
-#endif
-    
+#ifndef CONFIG_WASM
     rt = JS_NewRuntime();
     if (rt == NULL) {
         fprintf(stderr, "JS_NewRuntime failure");
         exit(1);
-    }        
+    }
     js_std_init_handlers(rt);
+#else
+	rt = JS_RustNewRuntime();
+	if (rt == NULL) {
+		fprintf(stderr, "JS_RustNewRuntime failure");
+		exit(1);
+	}
+#endif
 
     JS_SetModuleLoaderFunc(rt, NULL, js_module_loader, NULL);
 
@@ -4161,6 +4159,16 @@ static JSValue js_print(JSContext *ctx, JSValueConst this_val,
     return JS_UNDEFINED;
 }
 
+#ifdef CONFIG_BENCHMARK
+static JSValue js_query_mem(JSContext *ctx, JSValueConst this_val,
+                              int argc, JSValueConst *argv)
+{
+	JSRuntime *rt = JS_GetRuntime(ctx);
+	JS_DisplayMaxMallocSize(rt);
+	return JS_UNDEFINED;
+}
+#endif
+
 void js_std_add_helpers(JSContext *ctx, int argc, char **argv)
 {
     JSValue global_obj, console, args;
@@ -4187,6 +4195,11 @@ void js_std_add_helpers(JSContext *ctx, int argc, char **argv)
                       JS_NewCFunction(ctx, js_print, "print", 1));
     JS_SetPropertyStr(ctx, global_obj, "__loadScript",
                       JS_NewCFunction(ctx, js_loadScript, "__loadScript", 1));
+
+#ifdef CONFIG_BENCHMARK
+	JS_SetPropertyStr(ctx, global_obj, "queryMemory", 
+					  JS_NewCFunction(ctx, js_query_mem, "queryMemory", 1));
+#endif
     
     JS_FreeValue(ctx, global_obj);
 }
@@ -4221,9 +4234,6 @@ void js_std_init_handlers(JSRuntime *rt)
 #endif
         JS_SetSharedArrayBufferFunctions(rt, &sf);
     }
-#endif
-#ifdef CONFIG_WASM
-    JS_InitOpaqueInRust(rt);
 #endif
 }
 

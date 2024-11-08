@@ -62,18 +62,16 @@ typedef struct {
 void JS_DropRustRuntime(JSRuntime *rt);
 int JS_RunRustAsyncTask(JSRuntime *rt);
 JSContext *JS_NewCustomContext(JSRuntime *rt);
-void JS_InitOpaqueInRust(JSRuntime *rt);
+void JS_InitOpaqueInRust(JSRuntime *rt, JS_BOOL need_drop);
 void JS_AddIntrinsicWebAssembly(JSContext *ctx);
 void js_std_loop_test(JSContext *ctx);
 JSRustMessagePipe *JS_CreateRustMessagePipe(JSRuntime *rt);
 void JS_ReadRustMessagePipe(JSRustMessagePipe *ps);
 void JS_WriteRustMessagePipe(JSRustMessagePipe *ps);
-void JS_SelectRustMessagePipe(JSRustMessagePipe *ps);
 void JS_FreeRustMessagePipe(JSRustMessagePipe *ps);
-void JS_RustLockMutex(JSRustMessagePipe *ps);
-void JS_RustUnlockMutex(JSRustMessagePipe *ps);
 JSRustMessagePipe *JS_DupRustMessagePipe(JSRustMessagePipe *ps);
 JSRustMessagePipe *JS_GetRustMessagePipe(JSRuntime *rt);
+void js_set_worker_new_runtime_func(JSRuntime *(*func)());
 #endif
                                         
 #ifdef __cplusplus
