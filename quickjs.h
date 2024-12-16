@@ -843,6 +843,7 @@ JSValue JS_GetTypedArrayBuffer(JSContext *ctx, JSValueConst obj,
 JS_BOOL JS_IsAsyncFunction(JSContext *ctx, JSValueConst val);
 typedef void JSFreeCustomSharedArrayBufferDataFunc(void *opaque);
 typedef void *JSDupCustomSharedArrayBufferDataFunc(void *opaque);
+JSValue JS_ArrayFromIterObject(JSContext *ctx, JSValueConst obj);
 #endif /* CONFIG_WASM */
 
 typedef struct {

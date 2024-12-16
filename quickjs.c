@@ -53235,6 +53235,26 @@ static JSValue js_array_from_iterator(JSContext *ctx, uint32_t *plen,
     return JS_EXCEPTION;
 }
 
+#ifdef CONFIG_WASM
+JSValue JS_ArrayFromIterObject(JSContext *ctx, JSValueConst obj)
+{
+	JSValue iter, arr = JS_UNDEFINED;
+
+	iter = JS_GetProperty(ctx, obj, JS_ATOM_Symbol_iterator);
+	if (JS_IsException(iter))
+		return JS_EXCEPTION;
+	if (JS_IsUndefined(iter) || JS_IsNull(iter))
+		return iter;
+	uint32_t len1;
+	arr = js_array_from_iterator(ctx, &len1, obj, iter);
+	JS_FreeValue(ctx, iter);
+	if (JS_IsException(arr))
+		return JS_EXCEPTION;
+
+	return arr;
+}
+#endif
+
 static JSValue js_typed_array_constructor_obj(JSContext *ctx,
                                               JSValueConst new_target,
                                               JSValueConst obj,
