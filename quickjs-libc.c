@@ -161,12 +161,20 @@ static BOOL js_new_rust_message_pipe(JSRustMessagePipe *ps)
     int pipe_fds[2];
 
     if (pipe(pipe_fds) < 0)
-        goto fail;
+        goto fail0;
 
     ps->read_fd = pipe_fds[0];
     ps->write_fd = pipe_fds[1];
     pthread_mutex_init(&ps->mutex, NULL);
     ps->ref_count = 1;
+	int flags = fcntl(ps->write_fd, F_GETFL, 0);
+	if (flags == -1) {
+		goto fail;
+	}
+	flags |= O_NONBLOCK;
+	if (fcntl(ps->write_fd, F_SETFL, flags) == -1) {
+		goto fail;
+	}
 
     return TRUE;
 
@@ -175,6 +183,7 @@ fail:
     close(ps->write_fd);
     pthread_mutex_destroy(&ps->mutex);
 
+fail0:
     return FALSE;
 }
 
@@ -249,8 +258,8 @@ void JS_WriteRustMessagePipe(JSRustMessagePipe *ps)
         if (ret == 1) {
             break;
         }
-        if (ret < 0 && (errno != EAGAIN || errno != EINTR))
-            break;
+		if (ret < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
+			break;
     }
 }
 
@@ -4167,6 +4176,14 @@ static JSValue js_query_mem(JSContext *ctx, JSValueConst this_val,
 	JS_DisplayMaxMallocSize(rt);
 	return JS_UNDEFINED;
 }
+
+static JSValue js_run_gc(JSContext *ctx, JSValueConst this_val,
+                              int argc, JSValueConst *argv)
+{
+	JSRuntime *rt = JS_GetRuntime(ctx);
+	JS_RunGC(rt);
+	return JS_UNDEFINED;
+}
 #endif
 
 void js_std_add_helpers(JSContext *ctx, int argc, char **argv)
@@ -4199,6 +4216,8 @@ void js_std_add_helpers(JSContext *ctx, int argc, char **argv)
 #ifdef CONFIG_BENCHMARK
 	JS_SetPropertyStr(ctx, global_obj, "queryMemory", 
 					  JS_NewCFunction(ctx, js_query_mem, "queryMemory", 1));
+	JS_SetPropertyStr(ctx, global_obj, "runGC", 
+					  JS_NewCFunction(ctx, js_run_gc, "runGC", 1));
 #endif
     
     JS_FreeValue(ctx, global_obj);
