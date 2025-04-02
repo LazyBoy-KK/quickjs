@@ -134,7 +134,7 @@ typedef struct JSThreadState {
     JSWorkerMessagePipe *recv_pipe, *send_pipe;
 #ifdef CONFIG_WASM
     void* rust_opaque;
-    JSRustMessagePipe *rust_pipes;
+    struct list_head rust_pipes_list;
 #endif
 } JSThreadState;
 
@@ -208,6 +208,7 @@ void JS_FreeRustMessagePipe(JSRustMessagePipe *ps)
         close(ps->read_fd);
         close(ps->write_fd);
         pthread_mutex_destroy(&ps->mutex);
+		list_del(&ps->link);
         free(ps);
     }
 }
@@ -216,18 +217,20 @@ JSRustMessagePipe *JS_CreateRustMessagePipe(JSRuntime *rt)
 {
     JSThreadState *ts = JS_GetRuntimeOpaque(rt);
 
-    ts->rust_pipes = malloc(sizeof(JSRustMessagePipe));
-    if (ts->rust_pipes == NULL)
-        goto fail;
+    JSRustMessagePipe *pipe = malloc(sizeof(JSRustMessagePipe));
+    if (pipe == NULL)
+        goto fail0;
     
-    if (!js_new_rust_message_pipe(ts->rust_pipes))
+    if (!js_new_rust_message_pipe(pipe)) {
         goto fail;
-
-    return JS_DupRustMessagePipe(ts->rust_pipes);
+	}
+	
+	list_add_tail(&pipe->link, &ts->rust_pipes_list);
+    return pipe;
 
 fail:
-    free(ts->rust_pipes);
-    ts->rust_pipes = NULL;
+    free(pipe);
+fail0:
     return NULL;
 }
 
@@ -261,12 +264,6 @@ void JS_WriteRustMessagePipe(JSRustMessagePipe *ps)
 		if (ret < 0 && (errno == EWOULDBLOCK || errno == EAGAIN))
 			break;
     }
-}
-
-JSRustMessagePipe *JS_GetRustMessagePipe(JSRuntime *rt)
-{
-    JSThreadState *ts = JS_GetRuntimeOpaque(rt);
-    return ts->rust_pipes;
 }
 
 // Only select read fd
@@ -2393,12 +2390,6 @@ static int handle_posted_message(JSRuntime *rt, JSContext *ctx,
 }
 #endif
 
-#ifdef CONFIG_WASM
-static BOOL rust_pipes_empty(JSThreadState *ts) {
-    return ts->rust_pipes == NULL;
-}
-#endif
-
 static int js_os_poll(JSContext *ctx)
 {
     JSRuntime *rt = JS_GetRuntime(ctx);
@@ -2429,7 +2420,7 @@ static int js_os_poll(JSContext *ctx)
 
 #ifdef CONFIG_WASM
     if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
-        list_empty(&ts->port_list) && rust_pipes_empty(ts))
+        list_empty(&ts->port_list) && list_empty(&ts->rust_pipes_list))
 #else
     if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
         list_empty(&ts->port_list))
@@ -2487,11 +2478,13 @@ static int js_os_poll(JSContext *ctx)
     }
 
 #ifdef CONFIG_WASM
-    if (!rust_pipes_empty(ts)) {
-        int read_fd = ts->rust_pipes->read_fd;
-        fd_max = max_int(fd_max, read_fd);
-        FD_SET(read_fd, &rfds);
-    }
+	if (!list_empty(&ts->rust_pipes_list)) {
+		list_for_each(el, &ts->rust_pipes_list) {
+			JSRustMessagePipe *pipe = list_entry(el, JSRustMessagePipe, link);
+			fd_max = max_int(fd_max, pipe->read_fd);
+			FD_SET(pipe->read_fd, &rfds);
+		}
+	}
 #endif
 
     ret = select(fd_max + 1, &rfds, &wfds, NULL, tvp);
@@ -2525,16 +2518,17 @@ static int js_os_poll(JSContext *ctx)
         }
 
 #ifdef CONFIG_WASM
-        if (!rust_pipes_empty(ts)) {
-            int read_fd = ts->rust_pipes->read_fd;
-            if (FD_ISSET(read_fd, &rfds)){
-                if (JS_RunRustAsyncTask(rt)) {
-                    JS_FreeRustMessagePipe(ts->rust_pipes);
-                    ts->rust_pipes = NULL;
-                    goto done;
-                }
-            }
-        }
+		if (!list_empty(&ts->rust_pipes_list)) {
+			list_for_each(el, &ts->rust_pipes_list) {
+				JSRustMessagePipe *pipe = list_entry(el, JSRustMessagePipe, link);
+				if (FD_ISSET(pipe->read_fd, &rfds)) {
+					if (JS_RunRustAsyncTask(rt, pipe)) {
+						JS_FreeRustMessagePipe(pipe);
+						goto done;
+					}
+				}
+			}
+		}
 #endif
     }
     done:
@@ -2572,7 +2566,7 @@ static int js_os_poll_test(JSContext *ctx)
     }
 
     if (list_empty(&ts->os_rw_handlers) && list_empty(&ts->os_timers) &&
-        list_empty(&ts->port_list) && rust_pipes_empty(ts))
+        list_empty(&ts->port_list) && list_empty(&ts->rust_pipes_list))
         return -1; /* no more events */
     
     if (!list_empty(&ts->os_timers)) {
@@ -2624,11 +2618,13 @@ static int js_os_poll_test(JSContext *ctx)
         }
     }
 
-    if (!rust_pipes_empty(ts)) {
-        int read_fd = ts->rust_pipes->read_fd;
-        fd_max = max_int(fd_max, read_fd);
-        FD_SET(read_fd, &rfds);
-    }
+    if (!list_empty(&ts->rust_pipes_list)) {
+		list_for_each(el, &ts->rust_pipes_list) {
+			JSRustMessagePipe *pipe = list_entry(el, JSRustMessagePipe, link);
+			fd_max = max_int(fd_max, pipe->read_fd);
+			FD_SET(pipe->read_fd, &rfds);
+		}
+	}
 
     ret = select(fd_max + 1, &rfds, &wfds, NULL, tvp);
     if (ret > 0) {
@@ -2659,14 +2655,16 @@ static int js_os_poll_test(JSContext *ctx)
             }
         }
 
-        if (!rust_pipes_empty(ts)) {
-            int read_fd = ts->rust_pipes->read_fd;
-            if (FD_ISSET(read_fd, &rfds)) {
-                if (JS_RunRustAsyncTask(rt)) {
-                    return -1;
-                }
-            }
-        }
+        if (!list_empty(&ts->rust_pipes_list)) {
+			list_for_each(el, &ts->rust_pipes_list) {
+				JSRustMessagePipe *pipe = list_entry(el, JSRustMessagePipe, link);
+				if (FD_ISSET(pipe->read_fd, &rfds)) {
+					if (JS_RunRustAsyncTask(rt, pipe)) {
+						JS_FreeRustMessagePipe(pipe);
+					}
+				}
+			}
+		}
     }
     done:
     return 0;
@@ -4237,6 +4235,9 @@ void js_std_init_handlers(JSRuntime *rt)
     init_list_head(&ts->os_signal_handlers);
     init_list_head(&ts->os_timers);
     init_list_head(&ts->port_list);
+#ifdef CONFIG_WASM
+	init_list_head(&ts->rust_pipes_list);
+#endif
 
     JS_SetRuntimeOpaque(rt, ts);
 

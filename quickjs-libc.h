@@ -28,6 +28,7 @@
 #include <stdlib.h>
 
 #include "quickjs.h"
+#include "list.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -54,13 +55,14 @@ void js_std_set_worker_new_context_func(JSContext *(*func)(JSRuntime *rt));
 
 #ifdef CONFIG_WASM
 typedef struct {
+	struct list_head link;
     int ref_count;
     pthread_mutex_t mutex;
     int read_fd;
     int write_fd;
 } JSRustMessagePipe;
 void JS_DropRustRuntime(JSRuntime *rt);
-int JS_RunRustAsyncTask(JSRuntime *rt);
+int JS_RunRustAsyncTask(JSRuntime *rt, JSRustMessagePipe *pipe);
 JSContext *JS_NewCustomContext(JSRuntime *rt);
 void JS_InitOpaqueInRust(JSRuntime *rt, JS_BOOL need_drop);
 void JS_AddIntrinsicWebAssembly(JSContext *ctx);
@@ -70,7 +72,6 @@ void JS_ReadRustMessagePipe(JSRustMessagePipe *ps);
 void JS_WriteRustMessagePipe(JSRustMessagePipe *ps);
 void JS_FreeRustMessagePipe(JSRustMessagePipe *ps);
 JSRustMessagePipe *JS_DupRustMessagePipe(JSRustMessagePipe *ps);
-JSRustMessagePipe *JS_GetRustMessagePipe(JSRuntime *rt);
 void js_set_worker_new_runtime_func(JSRuntime *(*func)());
 #endif
                                         
